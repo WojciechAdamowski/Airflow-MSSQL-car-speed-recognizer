@@ -1,0 +1,22 @@
+{
+  "source_fs": {
+    "conn_type": "fs",
+    "description": "Source directory for generated data",
+    "login": null,
+    "password": null,
+    "host": null,
+    "port": null,
+    "schema": null,
+    "extra": "{\n  \"path\": \"/opt/airflow/data\"\n}"
+  },
+  "target_ms_db": {
+    "conn_type": "mssql",
+    "description": "Target database for data extracted from file",
+    "login": "SA",
+    "password": "Th1sS3cret!",
+    "host": "sqlserver",
+    "port": 1433,
+    "schema": "car_speed_recognizer",
+    "extra": null
+  }
+}
