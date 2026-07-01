@@ -22,13 +22,13 @@ This is a project aimed at demonstrating skills in processing data from a file c
 git clone https://github.com/WojciechAdamowski/Airflow-MSSQL-car-speed-recognizer.git
 cd ./Airflow-MSSQL-car-speed-recognizer/ApacheAirflowConf
 docker compose build
-docker compose up airflow-init
+docker compose up airflow-init -d
 docker compose up -d
 
 docker-compose cp ./Metadata/connections.json airflow-apiserver:/tmp/connections.json
 docker-compose exec -it airflow-apiserver airflow connections import /tmp/connections.json
 
-Start-Process "http://localhost:8080/assets"
+Start-Process "http://localhost:8080/dags"
 ```
 
 ## Database
