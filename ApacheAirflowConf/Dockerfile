@@ -17,3 +17,4 @@ RUN pip install apache-airflow-providers-common-sql
 RUN pip install pyodbc
 
 RUN pip install pandas
+RUN pip install pandera

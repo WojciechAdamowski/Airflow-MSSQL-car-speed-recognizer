@@ -3,13 +3,23 @@ This is a project aimed at demonstrating skills in processing data from a file c
 
 ## TODO
 1. [X] Add removing data from bronze table in 02 DAG
-2. [ ] Checking data types correctness in file
-3. [ ] Move expected file schema to meta data table
+2. [X] Checking data types correctness in file
+3. [X] Move expected file schema to meta data table
 4. [X] Something is wrong with mapping csv files in data folder
 5. [X] Add argument for 01 DAG for generating given number of rows
 6. [ ] Add documentation for all DAGs
 7. [ ] Create meta data tables for logging processes 
 8. [ ] Create meta data table for loading files (batch_id, file_name, rows count etc)
+9. [ ] Delta lake source
+10. [ ] Simple reports 
+11. [ ] Multiprocessing DAG
+12. [ ] Multithreading DAG
+13. [ ] ML DAG
+14. [X] Add text files for information about wrong or quarantine files
+15. [ ] Better README: How project works, main features, main focuses, why dags are without schedules etc.
+16. [ ] Create table for loading processes for example for counting bad rows 
+17. [ ] Loaded files should go archive
+18. [ ] Add transactions to loading procedures
 
 ## First fast project run 
 

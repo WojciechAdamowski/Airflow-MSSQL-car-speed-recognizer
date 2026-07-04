@@ -40,18 +40,71 @@ CREATE TABLE [bronze].[fs_car_speed_catches] (
 /*
     Creating silver schema objects
 */
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'd_seg_segment')
+CREATE TABLE [silver].[d_seg_segment] (
+    d_seg_id INT PRIMARY KEY IDENTITY
+    , d_seg_source_id INT NOT NULL
+    , d_seg_name NVARCHAR(100)
+    , d_seg_length_m INT
+    , d_seg_speed_limit INT
+    , md_insert_time DATETIME DEFAULT GETDATE()
+    , md_update_time DATETIME
+    , md_start_time DATETIME
+    , md_end_date DATETIME
+    , md_is_current BIT
+)
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'd_vet_vehicle_type')
+CREATE TABLE [silver].[d_vet_vehicle_type] (
+    d_vet_id INT PRIMARY KEY IDENTITY
+    , d_vet_name NVARCHAR(100)
+    , md_insert_time DATETIME DEFAULT GETDATE()
+)
+
+IF NOt EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'load_d_vet_vehicle_type')
+EXEC('
+    CREATE OR ALTER PROCEDURE [silver].[load_d_vet_vehicle_type] AS
+    BEGIN
+        SET NOCOUNT ON;
+
+        BEGIN TRANSACTION;
+        BEGIN TRY
+
+            MERGE [silver].[d_vet_vehicle_type] AS t
+            USING (
+                SELECT
+                    DISTINCT vehicle_type AS [d_vet_name]
+                FROM [bronze].[fs_car_speed_catches]
+            ) AS s
+            ON t.d_vet_name = s.d_vet_name
+            WHEN NOT MATCHED THEN INSERT (
+                d_vet_name
+            ) VALUES (
+                s.d_vet_name
+            );
+
+            COMMIT TRANSACTION;
+        END TRY
+        BEGIN CATCH
+            IF @@TRANCOUNT>0
+                ROLLBACK TRANSACTION;
+            THROW;
+        END CATCH
+    END
+')
 
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'd_lpp_license_plate_prefixes')
-CREATE TABLE [silver].[lpp_license_plate_prefixes]  (
+CREATE TABLE [silver].[d_lpp_license_plate_prefixes]  (
     d_lpp_id                  INT PRIMARY KEY IDENTITY,
     d_lpp_prefix              VARCHAR(3) NOT NULL,
     d_lpp_voivodeship         NVARCHAR(50) NOT NULL,
     d_lpp_registration_place  NVARCHAR(100) NOT NULL,
-    d_lpp_unit_type           NVARCHAR(50) NOT NULL
+    d_lpp_unit_type           NVARCHAR(50) NOT NULL,
+    md_insert_time            DATETIME DEFAULT GETDATE()
 )
 
-IF 0 = (SELECT COUNT(1) FROM [silver].[lpp_license_plate_prefixes])
-INSERT INTO [silver].[lpp_license_plate_prefixes] (
+IF 0 = (SELECT COUNT(1) FROM [silver].[d_lpp_license_plate_prefixes])
+INSERT INTO [silver].[d_lpp_license_plate_prefixes] (
    d_lpp_prefix
   , d_lpp_voivodeship
   , d_lpp_registration_place
