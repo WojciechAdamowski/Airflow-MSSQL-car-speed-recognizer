@@ -27,11 +27,13 @@ def check_files_correctness(**context):
         , run_id=context['run_id']
     )
 
+
 def chunk_big_files():
     tools.split_csv_files(
         file_source_directory=SOURCE_DIRECTORY_ASSET.uri
         , file_name='*'
     )
+
 
 def get_files_to_extract():
     csv_files = glob.glob(SOURCE_DIRECTORY_ASSET.uri + f"/ready/*.csv")
@@ -53,6 +55,7 @@ def extract_data_from_files_to_staging_table(**context):
         , file_name='*'
         , run_id=context['run_id']
     )
+
 
 def extract_data_from_file_to_staging_table(
         file_name: str

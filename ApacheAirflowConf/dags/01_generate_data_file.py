@@ -1,8 +1,6 @@
 from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.providers.standard.sensors.filesystem import FileSensor
 from airflow.sdk.bases.hook import BaseHook
-from airflow.sdk import chain
 from datetime import datetime, timedelta
 
 import random

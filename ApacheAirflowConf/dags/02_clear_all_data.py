@@ -10,6 +10,15 @@ T_TRUNCATE_BRONZE_TABLES_SCRIPT = """
 TRUNCATE TABLE [bronze].[fs_car_speed_catches]
 """
 
+T_TRUNCATE_SILVER_TABLES_SCRIPT = """
+TRUNCATE TABLE [silver].[d_seg_segment]
+TRUNCATE TABLE [silver].[d_vet_vehicle_type]
+"""
+
+T_TRUNCATE_META_TABLES_SCRIPT = """
+TRUNCATE TABLE [meta].[aul_audit_load]
+"""
+
 
 def clear_file_storage():
     file_storage_path = Path(BaseHook.get_connection("source_fs").extra_dejson["path"])
@@ -30,4 +39,16 @@ with DAG(dag_id="02_clear_all_data", schedule=None, start_date=None, tags={"dele
         task_id="truncate_bronze_tables"
         , conn_id="target_ms_db"
         , sql=T_TRUNCATE_BRONZE_TABLES_SCRIPT
+    )
+
+    t_truncate_silver_tables = SQLExecuteQueryOperator(
+        task_id="truncate_silver_tables"
+        , conn_id="target_ms_db"
+        , sql=T_TRUNCATE_SILVER_TABLES_SCRIPT
+    )
+
+    t_truncate_meta_tables = SQLExecuteQueryOperator(
+        task_id="truncate_meta_tables"
+        , conn_id="target_ms_db"
+        , sql=T_TRUNCATE_META_TABLES_SCRIPT
     )

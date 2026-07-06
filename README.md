@@ -38,7 +38,7 @@ docker compose up -d
 docker-compose cp ./Metadata/connections.json airflow-apiserver:/tmp/connections.json
 docker-compose exec -it airflow-apiserver airflow connections import /tmp/connections.json
 
-Start-Process "http://localhost:8080/dags"
+Start-Process "http://localhost:8080/dags" 
 ```
 
 ## Database
