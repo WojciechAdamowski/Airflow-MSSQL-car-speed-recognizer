@@ -29,8 +29,41 @@ CREATE TABLE meta.aul_audit_load (
     aul_status              varchar(20)         NOT NULL,
     aul_error_message       nvarchar(4000)      NULL,
     aul_batch_id            varchar(100)        NULL,
-    md_insert_time          datetime            NOT NULL DEFAULT GETDATE()
+    md_insert_datetime      datetime            NOT NULL DEFAULT GETDATE()
 );
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'alf_audit_loaded_files')
+CREATE TABLE [meta].[alf_audit_loaded_files] (
+    alf_id                      INT IDENTITY(1,1) PRIMARY KEY
+    , alf_batch_id              VARCHAR(500)    NOT NULL
+    , alf_pipeline_name         VARCHAR(500)    NOT NULL
+    , alf_source_rows           INT
+    , alf_rejected_rows         INT
+    , alf_file_size_bytes       BIGINT
+    , alf_file_path             VARCHAR(500)    NOT NULL
+    , alf_status                VARCHAR(100)    NOT NULL
+    , alf_error_message         VARCHAR(1000)
+    , alf_load_start_datetime   DATETIME
+    , alf_load_end_datetime     DATETIME
+    , alf_source_system         VARCHAR(200)
+    , alf_target_schema         SYSNAME
+    , alf_target_table          SYSNAME
+    , md_insert_datetime        DATETIME DEFAULT GETDATE()
+)
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'aup_audit_process')
+CREATE TABLE [meta].[aup_audit_process] (
+    aup_id  INT IDENTITY(1, 1) PRIMARY KEY
+    , aup_batch_id  VARCHAR(500) NOT NULL
+    , aup_pipeline_name VARCHAR(500) NOT NULL
+    , aup_start_datetime DATETIME
+    , aup_end_datetime DATETIME
+    , aup_duration_s AS DATEDIFF(SECOND, aup_start_datetime, aup_end_datetime)
+    , aup_status NVARCHAR(20)
+    , aup_error_message NVARCHAR(MAX)
+    , md_insert_datetime DATETIME DEFAULT GETDATE()
+    , md_update_datetime DATETIME
+)
 
 /*
     Creating bronze schema objects
@@ -46,9 +79,9 @@ CREATE TABLE [bronze].[fs_car_speed_catches] (
     speed_limit_kmh     INT,
     plate_number        NVARCHAR(50),
     vehicle_type        NVARCHAR(50),
-    md_insert_time      DATETIME DEFAULT GETDATE(),
+    md_insert_datetime  DATETIME DEFAULT GETDATE(),
     md_batch_id         NVARCHAR(100),
-    md_file_name        NVARCHAR(100)
+    md_file_path        NVARCHAR(500)
 )
 
 /*
@@ -61,10 +94,10 @@ CREATE TABLE [silver].[d_seg_segment] (
     , d_seg_name NVARCHAR(100)
     , d_seg_length_m INT
     , d_seg_speed_limit INT
-    , md_insert_time DATETIME DEFAULT GETDATE()
-    , md_update_time DATETIME
-    , md_start_time DATETIME
-    , md_end_date DATETIME
+    , md_insert_datetime DATETIME DEFAULT GETDATE()
+    , md_update_datetime DATETIME
+    , md_start_datetime DATETIME
+    , md_end_datetime DATETIME
     , md_is_current BIT
 )
 
@@ -72,7 +105,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'd_vet_vehicle_type')
 CREATE TABLE [silver].[d_vet_vehicle_type] (
     d_vet_id INT PRIMARY KEY IDENTITY
     , d_vet_name NVARCHAR(100)
-    , md_insert_time DATETIME DEFAULT GETDATE()
+    , md_insert_datetime DATETIME DEFAULT GETDATE()
 )
 
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'd_lpp_license_plate_prefixes')
@@ -82,7 +115,7 @@ CREATE TABLE [silver].[d_lpp_license_plate_prefixes]  (
     d_lpp_voivodeship         NVARCHAR(50) NOT NULL,
     d_lpp_registration_place  NVARCHAR(100) NOT NULL,
     d_lpp_unit_type           NVARCHAR(50) NOT NULL,
-    md_insert_time            DATETIME DEFAULT GETDATE()
+    md_insert_datetime        DATETIME DEFAULT GETDATE()
 )
 
 IF 0 = (SELECT COUNT(1) FROM [silver].[d_lpp_license_plate_prefixes])

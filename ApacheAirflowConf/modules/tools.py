@@ -6,9 +6,23 @@ import pandas as pd
 import os
 import glob
 import shutil
-import typing
-import pathlib
+from typing import List
 
+from modules import logging
+
+
+def init_default_directories(base_dir_path: str) -> None:
+    quarantine_dir_path = base_dir_path + "/quarantine"
+    if not os.path.exists(quarantine_dir_path):
+        os.mkdir(quarantine_dir_path)
+
+    error_dir_path = base_dir_path + "/error"
+    if not os.path.exists(error_dir_path):
+        os.mkdir(error_dir_path)
+
+    archive_dir_path = base_dir_path + "/archive"
+    if not os.path.exists(archive_dir_path):
+        os.mkdir(archive_dir_path)
 
 
 def check_column_count(source_df: pd.DataFrame, schema_df: pa.DataFrameSchema) -> dict[str, bool | str]:
@@ -41,7 +55,8 @@ def check_column_types(source_df: pd.DataFrame, schema_df: pa.DataFrameSchema) -
         validated_df = schema_df.validate(source_df, lazy=True)
         return {
             "correctness": True,
-            "message": "CORRECT"
+            "message": "CORRECT",
+            "rejected_rows_count": 0
         }
     except pa.errors.SchemaErrors as exc:
         failure_df = exc.failure_cases
@@ -57,7 +72,8 @@ def check_column_types(source_df: pd.DataFrame, schema_df: pa.DataFrameSchema) -
         errors_as_string += "\n\t".join(failure_df["error_text"].tolist())
         return {
             "correctness": False,
-            "message": errors_as_string
+            "message": errors_as_string,
+            "rejected_rows_count": failure_df.shape[0]
         }
 
 
@@ -114,6 +130,7 @@ def get_table_schema(table_name: str, schema_name: str, conn: MsSqlHook) -> pa.D
 
     return pa.DataFrameSchema(columns_dict)
 
+
 def check_correctness(df, table_schema_df) -> dict[str, bool | str]:
     result = check_column_count(df, table_schema_df)
     if not result['correctness']:
@@ -136,152 +153,207 @@ def check_correctness(df, table_schema_df) -> dict[str, bool | str]:
     }
 
 
-def check_files_correctness_csv(
-        file_source_directory: str
-        , target_table_name: str
-        , target_schema_name: str
-        , run_id: str
-        , db_conn_hook: MsSqlHook
-        , file_name: str = '*'
+def remove_error_file_rows_from_db(
+        db_conn_hook: MsSqlHook
+        , file_properties
 ):
-    quarantine_dir_path = file_source_directory + "/quarantine"
-    if not os.path.exists(quarantine_dir_path):
-        os.mkdir(quarantine_dir_path)
+    conn = db_conn_hook.get_conn()
+    cursor = conn.cursor()
 
-    ready_dir_path = file_source_directory + "/ready"
-    if not os.path.exists(ready_dir_path):
-        os.mkdir(ready_dir_path)
+    table_name = file_properties["alf_target_table"]
+    table_schema = file_properties["alf_target_schema"]
+    file_path = file_properties["alf_file_path"]
 
-    error_dir_path = file_source_directory + "/error"
-    if not os.path.exists(error_dir_path):
-        os.mkdir(error_dir_path)
+    sql = f"DELETE FROM [{table_schema}].[{table_name}] WHERE md_file_path = '{file_path}'"
 
-    information_for_wrong_files = f"# INFORMATION ABOUT WRONG FILES FOR RUN ID: {run_id}"
-    files_to_check = glob.glob(file_source_directory + f"/{file_name}.csv")
+    cursor.execute(sql)
 
-    print(f"CHECKING CORRECTNESS FOR {len(files_to_check)} FILES")
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def check_files_correctness_csv(
+        files_properties: List[dict]
+        , db_conn_hook: MsSqlHook
+):
+    print(f"CHECKING CORRECTNESS FOR {len(files_properties)} FILES")
+
+    correct_files = []
+    target_table = files_properties[0]['alf_target_table']
+    target_schema = files_properties[0]['alf_target_schema']
+    base_dir_path = os.path.dirname(files_properties[0]['alf_file_path'])
+    quarantine_dir_path = base_dir_path + "/quarantine"
 
     table_schema_df = get_table_schema(
-        target_table_name
-        , target_schema_name
+        target_table
+        , target_schema
         , db_conn_hook
     )
 
-    wrong_files_count = 0
-    for file in files_to_check:
-        print(f"CHECKING CORRECTNESS FOR {file} FILE ({files_to_check.index(file) + 1}/{len(files_to_check)})")
-        source_df = pd.read_csv(file)
-        information_for_wrong_files += f"\n\n## QUARANTINE FOR {file}\n"
+    information_for_wrong_files = ""
+
+    for file in files_properties:
+        file_path = file['alf_file_path']
+        print(f"CHECKING CORRECTNESS FOR {file_path} FILE ({files_properties.index(file) + 1}/{len(files_properties)})")
+
+        source_df = pd.read_csv(file['alf_file_path'])
+        file['alf_source_rows'] = source_df.shape[0]
+        file['alf_file_size_bytes'] = os.path.getsize(file_path)
 
         result = check_correctness(source_df, table_schema_df)
         if result['correctness']:
-            shutil.move(file, ready_dir_path)
+            correct_files.append(file)
         else:
-            shutil.move(file, quarantine_dir_path)
+            information_for_wrong_files += f"\n\n## QUARANTINE FOR {file_path}\n"
+
+            shutil.move(file_path, quarantine_dir_path)
             information_for_wrong_files += result['message']
-            wrong_files_count += 1
+
+            file['alf_rejected_rows'] = result.get('rejected_rows_count', 0)
+            file['alf_status'] = 'quarantine'
+            file['alf_error_message'] = result['message']
+
+            logging.end_file_loading(file, db_conn_hook)
 
     print(
-            f"END OF CHECKING CORRECTNESS THERE WAS A {wrong_files_count} WRONG FILES FOR {len(files_to_check)} FILES")
+        f"END OF CHECKING CORRECTNESS THERE WAS A {len(files_properties) - len(correct_files)} WRONG FILES FOR {len(files_properties)} FILES")
 
-    if wrong_files_count > 0:
+    if len(files_properties) - len(correct_files) > 0:
         with open(quarantine_dir_path + "/info.md", "a", encoding="utf-8") as file:
             file.write(information_for_wrong_files)
 
-def extract_csv_files(
-        file_source_directory: str
-        , target_table_name: str
-        , target_schema_name: str
-        , run_id: str
-        , db_conn_hook: MsSqlHook
-        , file_name: str = '*'
+    return correct_files
+
+
+def extract_csv_file_by_chunks(
+        db_conn_hook: MsSqlHook
+        , chunk_properties
 ):
-    error_dir_path = file_source_directory + "/error"
-    csv_files = glob.glob(file_source_directory + f"/ready/{file_name}.csv")
-
-    error_files_paths = []
-    for file in csv_files:
-        try:
-            print(f"LOADING: {file}")
-            df = pd.read_csv(file)
-            df['md_batch_id'] = run_id
-            df['md_file_name'] = pathlib.Path(file).name
-
-            conn = db_conn_hook.get_sqlalchemy_engine()
-
-            with conn.begin() as connection:
-                df.to_sql(
-                    name=target_table_name
-                    , con=connection
-                    , schema=target_schema_name
-                    , if_exists="append"
-                    , index=False
-                    , chunksize=1000
-                    , method='multi'
-                )
-
-            os.remove(file)
-        except Exception as e:
-            error_files_paths.append(file)
-            shutil.move(file, error_dir_path)
-            print('ERROR WHILE EXTRACTING DATA:', e)
-
-    if len(error_files_paths) > 0:
-        error_message = "ERROR OCCUR FOR THIS FILES:\n"
-
-        for file in error_files_paths:
-            error_message += f" - {file}\n"
-
-        raise Exception(error_message)
-
-def extract_csv_file(
-        file_source_directory: str
-        , target_table_name: str
-        , target_schema_name: str
-        , run_id: str
-        , db_conn_hook: MsSqlHook
-        , file_name: str
-):
-    error_dir_path = file_source_directory + "/error"
-    file_path = file_source_directory + f"/ready/{file_name}.csv"
     try:
-        df = pd.read_csv(file_path)
-        df['md_batch_id'] = run_id
-        df['md_file_name'] = pathlib.Path(file_path).name
+
+        df = pd.read_csv(
+            chunk_properties["file_path"]
+            , skiprows=range(1, chunk_properties["chunk_from"] + 1)
+            , nrows=chunk_properties["chunk_to"] - chunk_properties["chunk_from"] + 1
+        )
+
+        df['md_batch_id'] = chunk_properties["chunk_batch_id"]
+        df['md_file_path'] = chunk_properties["file_path"]
 
         conn = db_conn_hook.get_sqlalchemy_engine()
 
         with conn.begin() as connection:
             df.to_sql(
-                name=target_table_name
+                name=chunk_properties["chunk_target_table_name"]
                 , con=connection
-                , schema=target_schema_name
+                , schema=chunk_properties["chunk_target_schema_name"]
                 , if_exists="append"
                 , index=False
                 , chunksize=1000
                 , method='multi'
             )
 
-        os.remove(file_path)
+        chunk_properties["chunk_status"] = "success"
     except Exception as e:
-        shutil.move(file_path, error_dir_path)
+        chunk_properties["chunk_status"] = "error"
+        chunk_properties["chunk_error_message"] = e
         print('ERROR WHILE EXTRACTING DATA:', e)
 
-def split_csv_files(
-    file_source_directory: str
-    , file_name: str = '*'
-    , rows_per_file=50_000
+    return chunk_properties
+
+
+def get_correct_files(
+        file_source_directory: str
+        , run_id: str
+        , dag_id: str
+        , target_schema_name: str
+        , target_table_name: str
+        , db_conn_hook: MsSqlHook
+        , file_schema: str = '*'
+        , file_extension: str = 'csv'
+        , source_system: str = "source_fs"
 ):
-    for file in glob.glob(file_source_directory + f"/ready/{file_name}.csv"):
+    all_files = glob.glob(file_source_directory + f"/{file_schema}.{file_extension}")
 
-        input_file = pathlib.Path(file)
-        output_dir = pathlib.Path(file_source_directory + "/ready")
+    files_properties = []
+    for file_path in all_files:
+        files_properties.append(logging.start_file_loading(
+            run_id
+            , dag_id
+            , file_path
+            , target_schema_name
+            , target_table_name
+            , source_system
+            , db_conn_hook
+        ))
 
-        chunk_iter = pd.read_csv(input_file, chunksize=rows_per_file)
+    correct_files = check_files_correctness_csv(
+        files_properties=files_properties
+        , db_conn_hook=db_conn_hook
+    )
 
-        for i, chunk in enumerate(chunk_iter, start=1):
-            output_file = output_dir / f"{input_file.stem}_{i:04d}.csv"
-            chunk.to_csv(output_file, index=False)
-            print(f"Saved: {output_file} ({len(chunk)} rows)")
+    return correct_files
 
-        os.remove(file)
+
+def get_chunks_by_files(
+        file_properties
+        , chunk_size: int = 50_000
+):
+    chunks = []
+
+    for file in file_properties:
+        n_rows = file["alf_source_rows"]
+
+        start = 0
+        while start < n_rows:
+            end = min(start + chunk_size, n_rows) - 1
+
+            chunks.append({"chunk_properties": {
+                "chunk_from": start
+                , "chunk_to": end
+                , "chunk_status": "started"
+                , "file_path": file["alf_file_path"]
+                , "chunk_target_table_name": file["alf_target_table"]
+                , "chunk_target_schema_name": file["alf_target_schema"]
+                , "chunk_batch_id": file["alf_batch_id"]
+                , "chunk_error_message": None
+            }})
+
+            start = end + 1
+
+    return chunks
+
+
+def log_loading_files(
+        file_properties
+        , chunk_properties
+        , file_source_directory: str
+        , db_conn_hook: MsSqlHook
+):
+    if not isinstance(chunk_properties, list):
+        chunk_properties = [chunk_properties]
+
+    for file in file_properties:
+        failed_chunks = [chunk for chunk in chunk_properties if
+                         chunk["file_path"] == file["alf_file_path"] and chunk["chunk_status"] == "error"]
+
+        if len(failed_chunks) > 0:
+            first_failed_chunk = failed_chunks[0]
+
+            file["alf_status"] = "error"
+            file["alf_error_message"] = first_failed_chunk["chunk_error_message"]
+
+            remove_error_file_rows_from_db(db_conn_hook, file)
+            shutil.move(file["alf_file_path"], file_source_directory + "/error")
+        else:
+            file["alf_status"] = "success"
+            shutil.move(file["alf_file_path"], file_source_directory + "/archive")
+
+        logging.end_file_loading(file, db_conn_hook)
+
+
+def push_error_to_xcom(context):
+    ti = context["ti"]
+    exception = context.get("exception")
+    ti.xcom_push(key="error_message", value=str(exception))

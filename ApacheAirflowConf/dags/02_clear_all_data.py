@@ -17,6 +17,8 @@ TRUNCATE TABLE [silver].[d_vet_vehicle_type]
 
 T_TRUNCATE_META_TABLES_SCRIPT = """
 TRUNCATE TABLE [meta].[aul_audit_load]
+TRUNCATE TABLE [meta].[alf_audit_loaded_files]
+TRUNCATE TABLE [meta].[aup_audit_process]
 """
 
 

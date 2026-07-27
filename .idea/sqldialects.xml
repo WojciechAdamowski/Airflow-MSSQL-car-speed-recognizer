@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="SqlDialectMappings">
+    <file url="file://$PROJECT_DIR$/ApacheAirflowConf/InitScripts/init_database.sql" dialect="GenericSQL" />
+    <file url="file://$PROJECT_DIR$/ApacheAirflowConf/InitScripts/init_procedures.sql" dialect="TSQL" />
+    <file url="file://$PROJECT_DIR$/ApacheAirflowConf/InitScripts/init_tables.sql" dialect="TSQL" />
+    <file url="file://$PROJECT_DIR$/ApacheAirflowConf/dags/02_clear_all_data.py" dialect="GenericSQL" />
+    <file url="file://$PROJECT_DIR$/ApacheAirflowConf/modules/logging.py" dialect="GenericSQL" />
+    <file url="file://$PROJECT_DIR$/ApacheAirflowConf/modules/tools.py" dialect="GenericSQL" />
+  </component>
+</project>
