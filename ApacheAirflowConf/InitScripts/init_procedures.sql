@@ -158,53 +158,64 @@ EXEC('
 
 IF NOT EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'load_alf_audit_loaded_files')
 EXEC('
+
     CREATE PROCEDURE [meta].[load_alf_audit_loaded_files] (
-        @alf_batch_id             VARCHAR(500)
-        , @alf_pipeline_name        VARCHAR(500)
-        , @alf_source_rows          INT
-        , @alf_rejected_rows        INT
-        , @alf_file_size_bytes      BIGINT
-        , @alf_file_path            VARCHAR(500)
-        , @alf_status               VARCHAR(100)
-        , @alf_error_message        VARCHAR(1000)
-        , @alf_load_start_datetime  DATETIME
-        , @alf_load_end_datetime    DATETIME
-        , @alf_source_system        VARCHAR(200)
-        , @alf_target_schema        SYSNAME
-        , @alf_target_table         SYSNAME
+        @alf_id                     INT = NULL OUTPUT
+        , @alf_batch_id             VARCHAR(500) = NULL
+        , @alf_pipeline_name        VARCHAR(500) = NULL
+        , @alf_source_rows          INT = NULL
+        , @alf_rejected_rows        INT = NULL
+        , @alf_file_size_bytes      BIGINT = NULL
+        , @alf_file_path            VARCHAR(500) = NULL
+        , @alf_status               VARCHAR(100) = NULL
+        , @alf_error_message        VARCHAR(1000) = NULL
+        , @alf_load_start_datetime  DATETIME = NULL
+        , @alf_load_end_datetime    DATETIME = NULL
+        , @alf_source_system        VARCHAR(200) = NULL
+        , @alf_target_schema        SYSNAME = NULL
+        , @alf_target_table         SYSNAME = NULL
+        , @action                   VARCHAR(10) = NULL
     ) AS
     BEGIN
         SET NOCOUNT ON;
 
-        INSERT INTO [meta].[alf_audit_loaded_files] (
-            alf_batch_id
-            ,alf_pipeline_name
-            ,alf_source_rows
-            ,alf_rejected_rows
-            ,alf_file_size_bytes
-            ,alf_file_path
-            ,alf_status
-            ,alf_error_message
-            ,alf_load_start_datetime
-            ,alf_load_end_datetime
-            ,alf_source_system
-            ,alf_target_schema
-            ,alf_target_table
-        ) VALUES (
-            @alf_batch_id
-            , @alf_pipeline_name
-            , @alf_source_rows
-            , @alf_rejected_rows
-            , @alf_file_size_bytes
-            , @alf_file_path
-            , @alf_status
-            , @alf_error_message
-            , @alf_load_start_datetime
-            , @alf_load_end_datetime
-            , @alf_source_system
-            , @alf_target_schema
-            , @alf_target_table
-        )
+        IF @action = ''started''
+            BEGIN
+                 INSERT INTO [meta].[alf_audit_loaded_files] (
+                    alf_batch_id
+                    ,alf_pipeline_name
+                    ,alf_file_path
+                    ,alf_status
+                    ,alf_load_start_datetime
+                    ,alf_source_system
+                    ,alf_target_schema
+                    ,alf_target_table
+                ) VALUES (
+                    @alf_batch_id
+                    , @alf_pipeline_name
+                    , @alf_file_path
+                    , ''started''
+                    , @alf_load_start_datetime
+                    , @alf_source_system
+                    , @alf_target_schema
+                    , @alf_target_table
+                )
+
+                SET @alf_id = SCOPE_IDENTITY()
+                SELECT @alf_id
+            END
+
+        IF @action = ''finished''
+            BEGIN
+                UPDATE [meta].[alf_audit_loaded_files] SET
+                    alf_source_rows = @alf_source_rows
+                    , alf_rejected_rows = @alf_rejected_rows
+                    , alf_file_size_bytes = @alf_file_size_bytes
+                    , alf_status = @alf_status
+                    , alf_error_message = @alf_error_message
+                    , alf_load_end_datetime = @alf_load_end_datetime
+                WHERE alf_id = @alf_id
+            END
     END
 ')
 

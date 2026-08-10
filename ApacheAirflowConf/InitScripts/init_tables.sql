@@ -1,5 +1,8 @@
 USE car_speed_recognizer
 
+SET ANSI_NULLS ON
+SET QUOTED_IDENTIFIER ON
+GO
 /*
     Creating meta schema objects
 */
@@ -83,6 +86,7 @@ CREATE TABLE [meta].[aup_audit_process] (
     , md_insert_datetime DATETIME DEFAULT GETDATE()
     , md_update_datetime DATETIME
 )
+GO
 
 /*
     Creating bronze schema objects
@@ -103,6 +107,7 @@ CREATE TABLE [bronze].[fs_car_speed_catches] (
     md_batch_id         NVARCHAR(100),
     md_file_path        NVARCHAR(500)
 )
+GO
 
 /*
     Creating silver schema objects
@@ -212,6 +217,7 @@ INSERT INTO [silver].[d_lpp_license_plate_prefixes] (
 ('OP', N'Opolskie', N'Opole', N'City with County Status'),
 ('PK', N'Wielkopolskie', N'Kalisz', N'City with County Status');
 
+GO
 /*
     Creating gold schema objects
 */
