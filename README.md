@@ -1,13 +1,13 @@
-# Airflow-MSSQL-car-speed-recognizer
+# 🚗 Airflow-MSSQL-car-speed-recognizer
 This is a project aimed at demonstrating skills in processing data from a file containing traffic statistics on road sections.
 A data pipeline built with Apache Airflow and SQL Server that simulates, ingests, and processes speed camera data for Polish road segments, following a bronze / silver / gold (medallion) architecture.
 
-## Additional TODO
+## ✅ Additional TODO
 1. [ ] Delta lake source
 2. [ ] Different source file extensions e.g. Excel, json, xml, parquet
 3. [ ] ML DAG
 
-## First fast project run 
+## 🧪 First fast project run 
 
 1. Install and run following apps:
 - Docker
@@ -27,16 +27,7 @@ docker-compose exec -it airflow-apiserver airflow connections import /tmp/connec
 Start-Process "http://localhost:8080/dags" 
 ```
 
-## Database
-
-### Extra information
-- Database login properties
-  - LOGIN: SA
-  - PASSWORD: Th1sS3cret!
-  - ADDRESS: localhost
-  - PORT: 1433
-
-## Airflow
+## 📊 Airflow
 
 ### Export connections 
 ```powershell
@@ -50,7 +41,17 @@ docker-compose cp ./Metadata/connections.json airflow-apiserver:/tmp/connections
 docker-compose exec -it airflow-apiserver airflow connections import /tmp/connections.json
 ```
 
-## How the project works
+
+## Database
+
+### Extra information
+- Database login properties
+  - LOGIN: SA
+  - PASSWORD: Th1sS3cret!
+  - ADDRESS: localhost
+  - PORT: 1433
+  - 
+## ⚙️ How the project works
 
 ### What kinds of errors are generated in source file
 
@@ -85,7 +86,7 @@ Text and dictionary errors:
 - column names
 - basic types
 
-### Pipeline Overview
+### 🔄 Pipeline Overview
  
 ```
 01_generate_data_file  ->  02_clear_all_data (optional reset)
@@ -100,7 +101,7 @@ Text and dictionary errors:
 05_aggregate_data  ->  gold layer (aggregates / reports)
 ```
 
-## DAGs
+## 📋 DAGs
  
 ### [01_generate_data_file](ApacheAirflowConf/dags/01_generate_data_file.py)
 Generates a synthetic CSV dataset simulating speed camera readings on Polish road segments, including realistic data quality issues (malformed plates, invalid timestamps, missing values). Used as the source file for the pipeline. Manual trigger only.
@@ -125,7 +126,7 @@ Builds the gold-layer weekly segment ranking aggregate from the silver fact tabl
 
 ### [VIEWS](ApacheAirflowConf/InitScripts/init_views.sql)
 
-## Gold Layer Views
+## 👁️ Gold Layer Views
   
 ### gold.V_Segment_Speeding_Live
 A plain view listing individual speeding events. Joins the fact table with the segment and vehicle dimensions, keeping only crossings where the recorded speed exceeds the segment's speed limit, and excluding rows with unknown ("EMPTY") plate numbers or segment names. Reflects live data, since it is recalculated on every query.
@@ -136,7 +137,7 @@ An indexed (materialized) view aggregating crossings per segment per day: total 
 ### gold.AV_Segment_Weekly_Ranking
 A plain view exposing the gold.a_swr_seg_weekly_ranking aggregate table (populated by the 05_aggregate_data DAG) under business-friendly column names: total crossings, over-speeding count and percentage, and each segment's rank position within its year-week.
 
-## Architecture
+## 🏗️ Architecture
  
 - Bronze - raw data as loaded from source CSV files.
 - Silver - cleaned, validated data modeled as SCD1/SCD2 dimensions and an insert-only fact table.
