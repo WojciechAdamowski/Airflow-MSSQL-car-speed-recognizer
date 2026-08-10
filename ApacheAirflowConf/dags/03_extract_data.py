@@ -15,29 +15,6 @@ SOURCE_DIRECTORY_ASSET = Asset(uri=FILE_STORAGE_PATH)
 TARGET_TABLE_NAME = "fs_car_speed_catches"
 TARGET_SCHEMA_NAME = "bronze"
 
-
-def get_all_files_properties(**context):
-    return tools.get_correct_files(
-        file_source_directory=SOURCE_DIRECTORY_ASSET.uri
-        , run_id=context['run_id']
-        , dag_id=context['task_instance'].dag_id
-        , target_schema_name=TARGET_SCHEMA_NAME
-        , target_table_name=TARGET_TABLE_NAME
-        , db_conn_hook=DB_CONNECTION_HOOK
-        , file_schema="*"
-        , file_extension="csv"
-    )
-
-
-def get_chunks_by_files(**context):
-    ti = context["ti"]
-    file_properties = ti.xcom_pull(task_ids="get_all_files_properties")
-    return tools.get_chunks_by_files(
-        file_properties=file_properties
-        , chunk_size=50_000
-    )
-
-
 def log_loading_files(**context):
     ti = context["ti"]
     file_properties = ti.xcom_pull(task_ids="get_all_files_properties")
@@ -66,6 +43,7 @@ with DAG(
         , tags={'extract'}
         , catchup=False
         , default_args={"on_failure_callback": tools.push_error_to_xcom}
+        , doc_md=tools.get_doc_by_dag_name("03_extract_data")
 ):
     t_start = PythonOperator(
         task_id="start_process"
@@ -80,7 +58,9 @@ with DAG(
     t_init_default_directories = PythonOperator(
         task_id='init_default_directories'
         , python_callable=tools.init_default_directories
-        , op_kwargs={"base_dir_path": SOURCE_DIRECTORY_ASSET.uri}
+        , op_kwargs={
+            "base_dir_path": SOURCE_DIRECTORY_ASSET.uri
+        }
     )
 
     t_check_file_exists = FileSensor(
@@ -94,12 +74,24 @@ with DAG(
 
     t_get_all_files_properties = PythonOperator(
         task_id="get_all_files_properties"
-        , python_callable=get_all_files_properties
+        , python_callable=tools.get_correct_files
+        , op_kwargs={
+            "file_source_directory": SOURCE_DIRECTORY_ASSET.uri
+            , "target_schema_name": TARGET_SCHEMA_NAME
+            , "target_table_name": TARGET_TABLE_NAME
+            , "db_conn_hook": DB_CONNECTION_HOOK
+            , "file_schema": "*"
+            , "file_extension": "csv"
+        }
     )
 
     t_get_chunks_by_files = PythonOperator(
         task_id="get_chunks_by_files"
-        , python_callable=get_chunks_by_files
+        , python_callable=tools.get_chunks_by_files
+        , op_kwargs={
+            "file_properties": t_get_all_files_properties.output
+            , "chunk_size": 50_000
+        }
     )
 
     t_extract_data_to_staging_table = PythonOperator.partial(
@@ -110,8 +102,14 @@ with DAG(
 
     t_log_loading_files = PythonOperator(
         task_id='log_loading_files'
-        , python_callable=log_loading_files
-        , trigger_rule="all_done"
+        , python_callable=tools.log_loading_files
+        , trigger_rule="all_success"
+        , op_kwargs={
+            "file_properties": t_get_all_files_properties.output
+            , "chunk_properties": t_extract_data_to_staging_table.output
+            , "file_source_directory": SOURCE_DIRECTORY_ASSET.uri
+            , "db_conn_hook": DB_CONNECTION_HOOK
+        }
     )
 
     t_success = PythonOperator(
@@ -134,10 +132,9 @@ with DAG(
         }
     )
 
-
 chain(
     t_start
-    ,t_init_default_directories
+    , t_init_default_directories
     , t_check_file_exists
     , t_get_all_files_properties
     , t_get_chunks_by_files

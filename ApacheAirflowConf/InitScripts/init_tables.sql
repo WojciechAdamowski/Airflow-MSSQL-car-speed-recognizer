@@ -4,6 +4,25 @@ USE car_speed_recognizer
     Creating meta schema objects
 */
 
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'aua_audit_aggregate')
+CREATE TABLE [meta].[aua_audit_aggregate](
+    aua_id INT IDENTITY(1, 1) PRIMARY KEY
+    , aua_target_schema_name  SYSNAME NOT NULL
+    , aua_target_table_name   SYSNAME NOT NULL
+    , aua_procedure_name      SYSNAME NOT NULL
+    , aua_run_start_time      DATETIME DEFAULT GETDATE()
+    , aua_run_end_time        DATETIME NULL
+    , aua_count_rows          INT NULL
+    , aua_status              VARCHAR(20) NOT NULL
+    , aua_error_message       NVARCHAR(4000) NULL
+    , aua_logical_date        DATETIME NULL
+    , aua_from_datetime       DATETIME NULL
+    , aua_to_datetime         DATETIME NULL
+    , aua_batch_id            VARCHAR(100) NULL
+    , aua_pipeline_name       SYSNAME
+    , md_insert_datetime      DATETIME DEFAULT GETDATE()
+)
+
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'aul_audit_load')
 CREATE TABLE meta.aul_audit_load (
     aul_load_id             bigint IDENTITY(1,1) PRIMARY KEY,
@@ -80,6 +99,7 @@ CREATE TABLE [bronze].[fs_car_speed_catches] (
     plate_number        NVARCHAR(50),
     vehicle_type        NVARCHAR(50),
     md_insert_datetime  DATETIME DEFAULT GETDATE(),
+    md_ingestion_date   DATE DEFAULT (CAST(GETDATE() AS DATE)),
     md_batch_id         NVARCHAR(100),
     md_file_path        NVARCHAR(500)
 )
@@ -87,6 +107,35 @@ CREATE TABLE [bronze].[fs_car_speed_catches] (
 /*
     Creating silver schema objects
 */
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'f_spc_speed_catch')
+CREATE TABLE [silver].[f_spc_speed_catch] (
+    f_spc_id INT IDENTITY(1, 1) PRIMARY KEY
+    , f_spc_entry_timestamp DATETIME NOT NULL
+    , f_spc_exit_timestamp DATETIME NOT NULL
+    , f_spc_duration_sec AS DATEDIFF(SECOND, f_spc_entry_timestamp, f_spc_exit_timestamp) PERSISTED
+    , f_spc_speed_km_h DECIMAL(6,2)
+    , d_seg_id INT NOT NULL
+    , d_veh_id INT NOT NULL
+    , md_alf_id INT NOT NULL
+    , md_insert_datetime DATETIME DEFAULT GETDATE()
+)
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_spc_seg_entry')
+CREATE INDEX IX_spc_seg_entry ON silver.f_spc_speed_catch (d_seg_id, f_spc_entry_timestamp)
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_spc_veh')
+CREATE INDEX IX_spc_veh ON silver.f_spc_speed_catch (d_veh_id)
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'd_veh_vehicle')
+CREATE TABLE [silver].[d_veh_vehicle] (
+    d_veh_id INT IDENTITY(1,1) PRIMARY KEY
+    , d_veh_plate_number VARCHAR(7) NOT NULL
+    , d_vet_id INT
+    , md_insert_datetime DATETIME DEFAULT GETDATE()
+    , md_update_datetime DATETIME
+)
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_veh_plate')
+CREATE UNIQUE NONCLUSTERED INDEX UX_veh_plate
+ON silver.d_veh_vehicle (d_veh_plate_number)
+
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'd_seg_segment')
 CREATE TABLE [silver].[d_seg_segment] (
     d_seg_id INT PRIMARY KEY IDENTITY
@@ -100,6 +149,10 @@ CREATE TABLE [silver].[d_seg_segment] (
     , md_end_datetime DATETIME
     , md_is_current BIT
 )
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_seg_source_current')
+CREATE NONCLUSTERED INDEX IX_seg_source_current
+ON silver.d_seg_segment (d_seg_source_id, md_is_current)
+INCLUDE (d_seg_id)
 
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'd_vet_vehicle_type')
 CREATE TABLE [silver].[d_vet_vehicle_type] (
@@ -107,6 +160,9 @@ CREATE TABLE [silver].[d_vet_vehicle_type] (
     , d_vet_name NVARCHAR(100)
     , md_insert_datetime DATETIME DEFAULT GETDATE()
 )
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_vet_name')
+CREATE UNIQUE NONCLUSTERED INDEX UX_vet_name
+ON silver.d_vet_vehicle_type (d_vet_name)
 
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'd_lpp_license_plate_prefixes')
 CREATE TABLE [silver].[d_lpp_license_plate_prefixes]  (
@@ -155,3 +211,18 @@ INSERT INTO [silver].[d_lpp_license_plate_prefixes] (
 ('ZG', N'Lubuskie', N'Zielona Góra', N'City with County Status'),
 ('OP', N'Opolskie', N'Opole', N'City with County Status'),
 ('PK', N'Wielkopolskie', N'Kalisz', N'City with County Status');
+
+/*
+    Creating gold schema objects
+*/
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'a_swr_seg_weekly_ranking')
+CREATE TABLE [gold].[a_swr_seg_weekly_ranking] (
+    d_seg_id INT NOT NULL
+    , a_swr_year_week VARCHAR(8) NOT NULL
+    , a_swr_total_crossings INT NOT NULL
+    , a_swr_over_speeding_count INT NOT NULL
+    , a_swr_over_speeding_percent DECIMAL(5, 2) NOT NULL
+    , a_swr_rank_position INT NOT NULL
+    , md_insert_datetime DATETIME DEFAULT GETDATE()
+    , PRIMARY KEY (d_seg_id, a_swr_year_week)
+)

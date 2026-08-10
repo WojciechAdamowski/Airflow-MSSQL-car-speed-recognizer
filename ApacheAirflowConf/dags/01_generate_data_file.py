@@ -2,7 +2,7 @@ from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk.bases.hook import BaseHook
 from datetime import datetime, timedelta
-
+from modules import tools
 import random
 import string
 
@@ -128,7 +128,7 @@ def generate_data_file(**context):
 
         if random.random() < time_error_rate:
             time_error = random.choice([
-                "missing_entry",
+                # "missing_entry",
                 "missing_exit",
                 "exit_before_entry",
                 "same_timestamp",
@@ -234,11 +234,19 @@ def generate_data_file(**context):
     date_time_now = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
 
     row_counts = context["params"]["row_counts"]
-    df = generate_speed_segment_data(n_records=row_counts)
+    start_date = datetime.now() - timedelta(days=30)
+    df = generate_speed_segment_data(n_records=row_counts, start_date=start_date)
     df.to_csv(file_path + f"/car_speed_data_{date_time_now}.csv", index=False)
 
 
-with DAG(dag_id="01_generate_data_file", start_date=None, schedule=None, tags={"generate_data"}, params={"row_counts": 10000}):
+with DAG(
+        dag_id="01_generate_data_file"
+        , start_date=None
+        , schedule=None
+        , tags={"generate_data"}
+        , params={"row_counts": 10000}
+        , doc_md=tools.get_doc_by_dag_name("01_generate_data_file")
+):
     t_generate_data_file = PythonOperator(
         task_id="generate_data_file"
         , python_callable=generate_data_file

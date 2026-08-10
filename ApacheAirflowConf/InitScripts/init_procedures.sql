@@ -1,10 +1,74 @@
 USE car_speed_recognizer
 
-
 /*
     Creating meta schema objects
 */
-IF EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'load_aul_audit_load')
+IF NOT EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'load_aua_audit_aggregate')
+EXEC('
+    CREATE PROCEDURE [meta].[load_aua_audit_aggregate]
+(
+    @aua_action                 VARCHAR(10)
+    , @aua_id                   BIGINT = NULL OUTPUT
+    , @aua_target_schema_name   SYSNAME = NULL
+    , @aua_target_table_name    SYSNAME = NULL
+    , @aua_procedure_name       SYSNAME = NULL
+    , @aua_count_rows           INT = NULL
+    , @aua_status               VARCHAR(20) = NULL
+    , @aua_error_message        NVARCHAR(4000) = NULL
+    , @aua_logical_date         DATETIME = NULL
+    , @aua_from_datetime        DATETIME = NULL
+    , @aua_to_datetime          DATETIME = NULL
+    , @aua_batch_id             VARCHAR(100) = NULL
+    , @aua_pipeline_name        SYSNAME = NULL
+)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF @aua_action = ''started''
+    BEGIN
+        INSERT INTO meta.aua_audit_aggregate (
+            aua_target_schema_name
+            , aua_target_table_name
+            , aua_procedure_name
+            , aua_status
+            , aua_logical_date
+            , aua_from_datetime
+            , aua_to_datetime
+            , aua_batch_id
+            , aua_pipeline_name
+        )
+        VALUES (
+            @aua_target_schema_name
+            , @aua_target_table_name
+            , @aua_procedure_name
+            , ''started''
+            , @aua_logical_date
+            , @aua_from_datetime
+            , @aua_to_datetime
+            , @aua_batch_id
+            , @aua_pipeline_name
+        );
+
+        SET @aua_id = SCOPE_IDENTITY();
+        RETURN;
+    END
+
+    IF @aua_action = ''finished''
+    BEGIN
+        UPDATE meta.aua_audit_aggregate
+        SET   aua_run_end_time = SYSDATETIME()
+            , aua_count_rows = @aua_count_rows
+            , aua_status = @aua_status
+            , aua_error_message = @aua_error_message
+        WHERE aua_id = @aua_id;
+
+        RETURN;
+    END
+END
+    ')
+
+IF NOT EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'load_aul_audit_load')
 EXEC('
     CREATE PROCEDURE [meta].[load_aul_audit_load]
     (
@@ -196,6 +260,8 @@ EXEC('
 
 IF NOT EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'load_d_vet_vehicle_type')
 EXEC('
+
+
     CREATE PROCEDURE [silver].[load_d_vet_vehicle_type] (
         @aul_window_from_time DATETIME
         ,@aul_window_to_time DATETIME
@@ -214,7 +280,8 @@ EXEC('
         DECLARE @count_deleted_rows INT = 0;
         DECLARE @count_rejected_rows INT = 0;
         DECLARE @actions TABLE (
-            action_name nvarchar(10)
+            action_name NVARCHAR(10)
+            , updated_id INT
         );
 
         EXECUTE [meta].[load_aul_audit_load]
@@ -235,11 +302,30 @@ EXEC('
         BEGIN TRANSACTION;
         BEGIN TRY
 
-                SELECT
-                    DISTINCT vehicle_type AS [d_vet_name]
-                INTO #source
-                FROM [bronze].[fs_car_speed_catches]
-                WHERE md_insert_datetime >= @aul_window_from_time AND md_insert_datetime <= @aul_window_to_time
+            DROP TABLE IF EXISTS #source
+
+            /***** BLANK ROW INSERT ******/
+
+            IF NOT EXISTS (SELECT 1 FROM [silver].[d_vet_vehicle_type] WHERE d_vet_id = 0)
+            BEGIN
+
+                SET IDENTITY_INSERT [silver].[d_vet_vehicle_type] ON
+
+                INSERT INTO [silver].[d_vet_vehicle_type](d_vet_id, d_vet_name)
+                VAlUES (0, ''EMPTY'')
+
+                SET IDENTITY_INSERT [silver].[d_vet_vehicle_type] OFF
+
+            END
+
+            /*****************************/
+
+            SELECT
+                DISTINCT vehicle_type AS [d_vet_name]
+            INTO #source
+            FROM [bronze].[fs_car_speed_catches]
+            WHERE md_insert_datetime >= @aul_window_from_time
+              AND md_insert_datetime <= @aul_window_to_time
 
             MERGE [silver].[d_vet_vehicle_type] AS t
             USING #source AS s
@@ -249,12 +335,16 @@ EXEC('
             ) VALUES (
                 s.d_vet_name
             )
-            OUTPUT $action INTO @actions;
+            OUTPUT
+                $action     AS [action_name]
+                , NULL      AS [updated_id]
+            INTO @actions (action_name, updated_id);
 
 
             /*********** AUDIT ***********/
-            SET @count_loaded_rows = ISNULL((SELECT COUNT(1) FROM #source), 0)
-            SET @count_inserted_rows = ISNULL((SELECT SUM(IIF(action_name = ''INSERT'', 1, 0)) FROM @actions), 0)
+            SET @count_loaded_rows = (SELECT COUNT(*) FROM #source)
+
+            SET @count_inserted_rows = (SELECT COUNT(*) FROM @actions WHERE action_name = ''INSERT'')
 
             EXECUTE [meta].[load_aul_audit_load]
                 @aul_action = ''finished''
@@ -289,11 +379,14 @@ EXEC('
             THROW;
         END CATCH
     END
+
 ')
 
-IF EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'load_d_seg_segment')
+IF NOT EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'load_d_seg_segment')
 EXEC('
-    CREATE PROCEDURE [silver].[load_d_seg_segment] (
+
+
+    CREATE  PROCEDURE [silver].[load_d_seg_segment] (
         @aul_window_from_time DATETIME
         ,@aul_window_to_time DATETIME
         ,@aul_pipeline_name SYSNAME
@@ -302,6 +395,7 @@ EXEC('
     ) AS
     BEGIN
         SET NOCOUNT ON;
+        SET XACT_ABORT ON;
 
         /*********** AUDIT ***********/
         DECLARE @load_id BIGINT;
@@ -337,19 +431,45 @@ EXEC('
             DROP TABLE IF EXISTS #correct_source
             DROP TABLE IF EXISTS #to_merge_source
 
-            SELECT DISTINCT
-                fs_csc.segment_id           AS [d_seg_source_id]
-                , fs_csc.segment_name       AS [d_seg_name]
-                , fs_csc.segment_length_m   AS [d_seg_length_m]
-                , fs_csc.speed_limit_kmh    AS [d_seg_speed_limit]
-            INTO #source
-            FROM [bronze].[fs_car_speed_catches] AS fs_csc
-            LEFT JOIN [meta].[alf_audit_loaded_files] AS alf ON alf.alf_file_path = fs_csc.md_file_path
-            WHERE fs_csc.md_insert_datetime >= @aul_window_from_time
-                AND fs_csc.md_insert_datetime <= @aul_window_to_time
-                AND alf.alf_status = ''success''
+            /***** BLANK ROW INSERT ******/
 
-            SELECT DISTINCT
+            IF NOT EXISTS (SELECT 1 FROM [silver].[d_seg_segment] WHERE d_seg_id = 0)
+            BEGIN
+
+                SET IDENTITY_INSERT [silver].[d_seg_segment] ON
+
+                INSERT INTO [silver].[d_seg_segment] (d_seg_id, d_seg_source_id, d_seg_name, d_seg_length_m, d_seg_speed_limit, md_start_datetime, md_is_current)
+                VAlUES (0, -1, ''EMPTY'', 0, 0, @aul_window_to_time, 1)
+
+                SET IDENTITY_INSERT [silver].[d_seg_segment] OFF
+
+            END
+
+            /*****************************/
+
+            SELECT
+                [d_seg_source_id]
+                ,[d_seg_name]
+                ,[d_seg_length_m]
+                ,[d_seg_speed_limit]
+            INTO #source
+            FROM (
+                SELECT DISTINCT
+                    fs_csc.segment_id                                                                            AS [d_seg_source_id]
+                    , fs_csc.segment_name                                                                        AS [d_seg_name]
+                    , fs_csc.segment_length_m                                                                    AS [d_seg_length_m]
+                    , fs_csc.speed_limit_kmh                                                                     AS [d_seg_speed_limit]
+                    , ROW_NUMBER() OVER (PARTITION BY fs_csc.segment_id ORDER BY fs_csc.md_insert_datetime DESC) AS rn
+                FROM [bronze].[fs_car_speed_catches] AS fs_csc
+                        LEFT JOIN [meta].[alf_audit_loaded_files] AS alf
+                                  ON alf.alf_file_path = fs_csc.md_file_path
+                WHERE fs_csc.md_insert_datetime >= @aul_window_from_time
+                     AND fs_csc.md_insert_datetime <= @aul_window_to_time
+                     AND alf.alf_status = ''success''
+            ) AS s
+            WHERE rn = 1
+
+            SELECT
                 [d_seg_source_id]
                 , [d_seg_name]
                 , [d_seg_length_m]
@@ -365,7 +485,7 @@ EXEC('
             SELECT *
             INTO #correct_source
             FROM (
-                SELECT DISTINCT
+                SELECT
                     [d_seg_source_id]
                     , [d_seg_name]
                     , [d_seg_length_m]
@@ -380,7 +500,7 @@ EXEC('
             SELECT *
             INTO #to_merge_source
             FROM (
-                SELECT DISTINCT
+                SELECT
                     [d_seg_source_id]
                     , [d_seg_name]
                     , [d_seg_length_m]
@@ -448,12 +568,14 @@ EXEC('
                 , @aul_window_to_time
                 , NULL
                 , 1
-            FROM #source s
+            FROM #to_merge_source s
             JOIN @actions a ON s.d_seg_source_id = a.updated_id AND a.action_name = ''UPDATE''
 
             /*********** AUDIT ***********/
 
-            SET @count_loaded_rows = ISNULL((SELECT COUNT(1) FROM (
+            COMMIT TRANSACTION;
+
+            SET @count_loaded_rows = ISNULL((SELECT COUNT(*) FROM (
                 SELECT DISTINCT
                     fs_csc.segment_id           AS [d_seg_source_id]
                     , fs_csc.segment_name       AS [d_seg_name]
@@ -464,12 +586,12 @@ EXEC('
                     AND md_insert_datetime <= @aul_window_to_time
             ) AS s), 0)
 
-            SET @count_inserted_rows = ISNULL((SELECT SUM(IIF(action_name = ''INSERT'', 1, 0)) FROM @actions)
-                + (SELECT COUNT(1) FROM #source s JOIN @actions a ON s.d_seg_source_id = a.updated_id AND a.action_name = ''UPDATE''), 0)
+            SET @count_inserted_rows = (SELECT COUNT(*) FROM @actions WHERE action_name = ''INSERT'')
+                + (SELECT COUNT(1) FROM #source s JOIN @actions a ON s.d_seg_source_id = a.updated_id AND a.action_name = ''UPDATE'')
 
-            SET @count_updated_rows = ISNULL((SELECT SUM(IIF(action_name = ''UPDATE'', 1, 0)) FROM @actions), 0)
+            SET @count_updated_rows = (SELECT COUNT(*) FROM @actions WHERE action_name = ''UPDATE'' )
 
-            SET @count_rejected_rows = ISNULL((SELECT COUNT(1) FROM #incorrect_source), 0)
+            SET @count_rejected_rows = (SELECT COUNT(*) FROM #incorrect_source)
 
             EXECUTE [meta].[load_aul_audit_load]
                 @aul_action = ''finished''
@@ -481,10 +603,12 @@ EXEC('
                 , @aul_count_rejected_rows = @count_rejected_rows
                 , @aul_status = ''success''
             /*****************************/
-
-            COMMIT TRANSACTION;
         END TRY
         BEGIN CATCH;
+            DECLARE @error_message NVARCHAR(4000) = ERROR_MESSAGE();
+
+            IF XACT_STATE() <> 0
+                ROLLBACK TRANSACTION;
 
             /*********** AUDIT ***********/
             EXECUTE [meta].[load_aul_audit_load]
@@ -496,12 +620,467 @@ EXEC('
                 , @aul_count_deleted_rows = @count_deleted_rows
                 , @aul_count_rejected_rows = @count_rejected_rows
                 , @aul_status = ''failed''
-                , @aul_error_message = ERROR_MESSAGE
+                , @aul_error_message = @error_message;
             /*****************************/
 
-            IF @@ROWCOUNT > 0
-                ROLLBACK TRANSACTION;
             THROW;
         END CATCH
     END
+
 ')
+
+IF NOT EXISTS(SELECT 1 FROM sys.procedures WHERE name = 'load_d_veh_vehicle')
+EXEC('
+    CREATE PROCEDURE [silver].[load_d_veh_vehicle] (
+        @aul_window_from_time DATETIME
+        ,@aul_window_to_time DATETIME
+        ,@aul_pipeline_name SYSNAME
+        ,@aul_logical_date DATETIME
+        ,@aul_batch_id VARCHAR(100)
+    ) AS
+    BEGIN
+        SET NOCOUNT ON;
+        SET XACT_ABORT ON;
+
+        /*********** AUDIT ***********/
+        DECLARE @load_id BIGINT;
+        DECLARE @count_loaded_rows INT = 0;
+        DECLARE @count_inserted_rows INT = 0;
+        DECLARE @count_updated_rows INT = 0;
+        DECLARE @count_deleted_rows INT = 0;
+        DECLARE @count_rejected_rows INT = 0;
+        DECLARE @actions TABLE (
+            action_name NVARCHAR(10)
+            , updated_id INT
+        );
+
+        EXECUTE [meta].[load_aul_audit_load]
+            @aul_action = ''started'',
+            @aul_load_id = @load_id OUTPUT,
+            @aul_pipeline_name = @aul_pipeline_name,
+            @aul_procedure_name = ''silver.load_d_veh_vehicle'',
+            @aul_source_schema_name = ''bronze'',
+            @aul_source_table_name = ''fs_car_speed_catches'',
+            @aul_target_schema_name = ''silver'',
+            @aul_target_table_name = ''d_veh_vehicle'',
+            @aul_logical_date = @aul_logical_date,
+            @aul_window_from_time = @aul_window_from_time,
+            @aul_window_to_time = @aul_window_to_time,
+            @aul_batch_id = @aul_batch_id;
+        /*****************************/
+
+        BEGIN TRANSACTION;
+        BEGIN TRY;
+
+            DROP TABLE IF EXISTS #raw_source
+            DROP TABLE IF EXISTS #source
+            DROP TABLE IF EXISTS #incorrect_source
+            DROP TABLE IF EXISTS #correct_source
+            DROP TABLE IF EXISTS #to_merge_source
+
+            /***** BLANK ROW INSERT ******/
+
+            IF NOT EXISTS (SELECT 1 FROM [silver].[d_veh_vehicle] WHERE d_veh_id = 0)
+            BEGIN
+
+                SET IDENTITY_INSERT [silver].[d_veh_vehicle] ON
+
+                INSERT INTO [silver].[d_veh_vehicle] (d_veh_id, d_veh_plate_number, d_vet_id)
+                VAlUES (0, ''EMPTY'', 0)
+
+                SET IDENTITY_INSERT [silver].[d_veh_vehicle] OFF
+
+            END
+
+            /*****************************/
+
+            SELECT
+                REPLACE(plate_number, '' '', '''')                                                          AS [d_veh_plate_number]
+                , vehicle_type                                                                          AS [d_veh_vehicle_type]
+                , ROW_NUMBER() OVER (PARTITION BY REPLACE(plate_number, '' '', '''') ORDER BY fs_csc.md_insert_datetime DESC) AS rn
+            INTO #raw_source
+            FROM [bronze].[fs_car_speed_catches] AS fs_csc
+            LEFT JOIN [meta].[alf_audit_loaded_files] AS alf
+                ON alf.alf_file_path = fs_csc.md_file_path
+            WHERE
+                fs_csc.md_insert_datetime >= @aul_window_from_time
+                AND fs_csc.md_insert_datetime <= @aul_window_to_time
+                AND alf.alf_status = ''success''
+
+            SELECT
+                [d_veh_plate_number]
+                ,[d_veh_vehicle_type]
+            INTO #source
+            FROM #raw_source AS s
+            WHERE rn = 1
+
+            SELECT *
+            INTO #incorrect_source
+            FROM #source
+            WHERE [d_veh_plate_number] IS NULL
+                OR LEN([d_veh_plate_number]) != 7
+                OR SUBSTRING([d_veh_plate_number], 0, 3) NOT IN (SELECT d_lpp_prefix FROM d_lpp_license_plate_prefixes)
+
+
+            SELECT *
+            INTO #correct_source
+            FROM (
+                SELECT * FROM #source
+
+                EXCEPT
+
+                SELECT * FROM #incorrect_source
+            ) AS s
+
+            SELECT *
+            INTO #to_merge_source
+            FROM (
+                SELECT
+                    [d_veh_plate_number]
+                    ,[d_vet_id]
+                FROM #correct_source AS veh
+                LEFT JOIN silver.d_vet_vehicle_type AS vet ON vet.d_vet_name = veh.d_veh_vehicle_type
+
+                EXCEPT
+
+                SELECT
+                    [d_veh_plate_number]
+                    ,[d_vet_id]
+                FROM [silver].[d_veh_vehicle]
+            ) AS s
+
+            MERGE [silver].[d_veh_vehicle] AS t
+            USING #to_merge_source AS s
+            ON t.d_veh_plate_number = s.d_veh_plate_number
+            WHEN MATCHED THEN UPDATE SET
+                t.d_vet_id = s.d_vet_id
+            WHEN NOT MATCHED THEN INSERT (
+                d_veh_plate_number
+                , d_vet_id
+            ) VALUES (
+                s.d_veh_plate_number
+                , s.d_vet_id
+            )
+            OUTPUT
+                $action     AS [action_name]
+                , NULL      AS [updated_id]
+            INTO @actions (action_name, updated_id);
+
+
+
+            /*********** AUDIT ***********/
+
+            COMMIT TRANSACTION;
+
+            SET @count_loaded_rows = (SELECT COUNT(*) FROM #raw_source)
+
+            SET @count_inserted_rows = (SELECT COUNT(*) FROM @actions WHERE action_name = ''INSERT'')
+
+            SET @count_updated_rows = (SELECT COUNT(*) FROM @actions WHERE action_name = ''UPDATE'')
+
+            SET @count_rejected_rows = (SELECT COUNT(*) FROM #incorrect_source)
+
+            EXECUTE [meta].[load_aul_audit_load]
+                @aul_action = ''finished''
+                , @aul_load_id = @load_id
+                , @aul_count_loaded_rows = @count_loaded_rows
+                , @aul_count_inserted_rows = @count_inserted_rows
+                , @aul_count_updated_rows = @count_updated_rows
+                , @aul_count_deleted_rows = @count_deleted_rows
+                , @aul_count_rejected_rows = @count_rejected_rows
+                , @aul_status = ''success''
+            /*****************************/
+        END TRY
+        BEGIN CATCH;
+            DECLARE @error_message NVARCHAR(4000) = ERROR_MESSAGE();
+
+            IF XACT_STATE() <> 0
+                ROLLBACK TRANSACTION;
+
+            /*********** AUDIT ***********/
+            EXECUTE [meta].[load_aul_audit_load]
+                @aul_action = ''finished''
+                , @aul_load_id = @load_id
+                , @aul_count_loaded_rows = @count_loaded_rows
+                , @aul_count_inserted_rows = @count_inserted_rows
+                , @aul_count_updated_rows = @count_updated_rows
+                , @aul_count_deleted_rows = @count_deleted_rows
+                , @aul_count_rejected_rows = @count_rejected_rows
+                , @aul_status = ''failed''
+                , @aul_error_message = @error_message;
+            /*****************************/
+
+            THROW;
+        END CATCH
+    END
+
+    ')
+
+IF NOT EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'load_f_spc_speed_catch')
+EXEC('
+CREATE PROCEDURE [silver].[load_f_spc_speed_catch] (
+        @aul_window_from_time DATETIME
+        ,@aul_window_to_time DATETIME
+        ,@aul_pipeline_name SYSNAME
+        ,@aul_logical_date DATETIME
+        ,@aul_batch_id VARCHAR(100)
+    ) AS
+    BEGIN
+        SET NOCOUNT ON;
+        SET XACT_ABORT ON;
+
+        /*********** AUDIT ***********/
+        DECLARE @load_id BIGINT;
+        DECLARE @count_loaded_rows INT = 0;
+        DECLARE @count_inserted_rows INT = 0;
+        DECLARE @count_updated_rows INT = 0;
+        DECLARE @count_deleted_rows INT = 0;
+        DECLARE @count_rejected_rows INT = 0;
+        DECLARE @actions TABLE (
+            action_name NVARCHAR(10)
+            , updated_id INT
+        );
+
+        EXECUTE [meta].[load_aul_audit_load]
+            @aul_action = ''started'',
+            @aul_load_id = @load_id OUTPUT,
+            @aul_pipeline_name = @aul_pipeline_name,
+            @aul_procedure_name = ''silver.load_f_spc_speed_catch'',
+            @aul_source_schema_name = ''bronze'',
+            @aul_source_table_name = ''fs_car_speed_catches'',
+            @aul_target_schema_name = ''silver'',
+            @aul_target_table_name = ''f_spc_speed_catch'',
+            @aul_logical_date = @aul_logical_date,
+            @aul_window_from_time = @aul_window_from_time,
+            @aul_window_to_time = @aul_window_to_time,
+            @aul_batch_id = @aul_batch_id;
+        /*****************************/
+
+        BEGIN TRANSACTION;
+        BEGIN TRY;
+
+            DROP TABLE IF EXISTS #source
+            DROP TABLE IF EXISTS #incorrect_source
+            DROP TABLE IF EXISTS #correct_source
+            DROP TABLE IF EXISTS #to_insert_source
+
+            SELECT
+                entry_timestamp
+                , exit_timestamp
+                , segment_id
+                , REPLACE(plate_number, '' '', '''') AS plate_number
+                , alf.alf_id
+            INTO #source
+            FROM [bronze].[fs_car_speed_catches] AS fs_csc
+            LEFT JOIN [meta].[alf_audit_loaded_files] AS alf
+                ON alf.alf_file_path = fs_csc.md_file_path
+            WHERE
+                fs_csc.md_insert_datetime >= @aul_window_from_time
+                AND fs_csc.md_insert_datetime <= @aul_window_to_time
+                AND alf.alf_status = ''success''
+                -- CHEAPER METHOD THAN MERGE WITH [f_spc_entry_timestamp], [f_spc_exit_timestamp], [d_seg_id], [d_veh_id]
+                AND alf.alf_id NOT IN (SELECT DISTINCT md_alf_id FROM [silver].[f_spc_speed_catch])
+
+            SELECT
+                *
+            INTO #incorrect_source
+            FROM #source
+            WHERE entry_timestamp IS NULL
+                OR exit_timestamp IS NULL
+                OR DATEDIFF(SECOND, entry_timestamp, exit_timestamp) <= 0
+
+            SELECT *
+            INTO #correct_source
+            FROM (
+                SELECT * FROM #source
+
+                EXCEPT
+
+                SELECT * FROM #incorrect_source
+            ) AS s
+
+            SELECT *
+            INTO #to_insert_source
+            FROM (
+                SELECT
+                    entry_timestamp                 AS [f_spc_entry_timestamp]
+                    , exit_timestamp                AS [f_spc_exit_timestamp]
+                    , CAST(
+                        seg.d_seg_length_m / 1000.0 / (DATEDIFF(SECOND, spc.entry_timestamp, spc.exit_timestamp) / 3600.0
+                    ) AS DECIMAL(6,2))              AS [f_spc_speed_km_h]
+                    , ISNULL(seg.d_seg_id, 0)       AS [d_seg_id]
+                    , ISNULL(veh.d_veh_id, 0)       AS [d_veh_id]
+                    , alf_id                        AS [md_alf_id]
+                FROM #correct_source AS spc
+                LEFT JOIN silver.d_veh_vehicle AS veh ON veh.d_veh_plate_number = spc.plate_number
+                LEFT JOIN silver.d_seg_segment AS seg ON seg.d_seg_source_id = spc.segment_id
+            ) AS s
+
+
+            INSERT INTO [silver].[f_spc_speed_catch] (
+                f_spc_entry_timestamp
+                , f_spc_exit_timestamp
+                , f_spc_speed_km_h
+                , d_seg_id
+                , d_veh_id
+                , md_alf_id
+            ) SELECT * FROM #to_insert_source
+
+
+            /*********** AUDIT ***********/
+
+            COMMIT TRANSACTION;
+
+            SET @count_loaded_rows = (SELECT COUNT(*) FROM #source)
+
+            SET @count_inserted_rows = (SELECT COUNT(*) FROM @actions WHERE action_name = ''INSERT'')
+
+            SET @count_rejected_rows = (SELECT COUNT(*) FROM #incorrect_source)
+
+            EXECUTE [meta].[load_aul_audit_load]
+                @aul_action = ''finished''
+                , @aul_load_id = @load_id
+                , @aul_count_loaded_rows = @count_loaded_rows
+                , @aul_count_inserted_rows = @count_inserted_rows
+                , @aul_count_updated_rows = @count_updated_rows
+                , @aul_count_deleted_rows = @count_deleted_rows
+                , @aul_count_rejected_rows = @count_rejected_rows
+                , @aul_status = ''success''
+            /*****************************/
+        END TRY
+        BEGIN CATCH;
+            DECLARE @error_message NVARCHAR(4000) = ERROR_MESSAGE();
+
+            IF XACT_STATE() <> 0
+                ROLLBACK TRANSACTION;
+
+            /*********** AUDIT ***********/
+            EXECUTE [meta].[load_aul_audit_load]
+                @aul_action = ''finished''
+                , @aul_load_id = @load_id
+                , @aul_count_loaded_rows = @count_loaded_rows
+                , @aul_count_inserted_rows = @count_inserted_rows
+                , @aul_count_updated_rows = @count_updated_rows
+                , @aul_count_deleted_rows = @count_deleted_rows
+                , @aul_count_rejected_rows = @count_rejected_rows
+                , @aul_status = ''failed''
+                , @aul_error_message = @error_message;
+            /*****************************/
+
+            THROW;
+        END CATCH
+    END
+    ')
+
+IF NOT EXISTS (SELECT 1 FROM sys.procedures WHERE name = 'aggregate_a_swr_seg_weekly_ranking')
+EXEC('
+CREATE PROCEDURE [gold].[aggregate_a_swr_seg_weekly_ranking](
+    @aua_logical_date DATETIME
+    , @aua_from_datetime DATETIME
+    , @aua_to_datetime DATETIME
+    , @aua_batch_id VARCHAR(100)
+    , @aua_pipeline_name SYSNAME
+) AS
+    BEGIN
+        SET NOCOUNT ON;
+        SET XACT_ABORT ON;
+
+        /*********** AUDIT ***********/
+        DECLARE @aggregate_id BIGINT;
+        DECLARE @count_rows INT = 0;
+
+        EXECUTE [meta].[load_aua_audit_aggregate]
+            @aua_action = ''started'',
+            @aua_id = @aggregate_id OUTPUT,
+            @aua_target_schema_name = ''gold'',
+            @aua_target_table_name = ''a_swr_seg_weekly_ranking'',
+            @aua_procedure_name = ''gold.aggregate_a_swr_seg_weekly_ranking'',
+            @aua_logical_date = @aua_logical_date,
+            @aua_from_datetime = @aua_from_datetime,
+            @aua_to_datetime = @aua_to_datetime,
+            @aua_batch_id = @aua_batch_id,
+            @aua_pipeline_name = @aua_pipeline_name;
+        /*****************************/
+
+        BEGIN TRANSACTION;
+        BEGIN TRY
+
+        TRUNCATE TABLE [gold].[a_swr_seg_weekly_ranking];
+
+        ;WITH weekly_base AS (
+            SELECT
+                f.d_seg_id
+                , CONCAT(
+                    DATEPART(YEAR, f.f_spc_entry_timestamp)
+                    , ''-W'',
+                    RIGHT(''0'' + CAST(DATEPART(ISO_WEEK, f.f_spc_entry_timestamp) AS VARCHAR(2)), 2)
+                  ) AS year_week
+                , COUNT(*) AS total_crossings
+                , SUM(IIF(f.f_spc_speed_km_h > d.d_seg_speed_limit, 1, 0)) AS speeding_count
+            FROM silver.f_spc_speed_catch f
+            JOIN silver.d_seg_segment d ON f.d_seg_id = d.d_seg_id
+            WHERE d.d_seg_id != 0
+                AND f.f_spc_entry_timestamp >= @aua_from_datetime
+                AND f.f_spc_entry_timestamp < @aua_to_datetime
+            GROUP BY
+                f.d_seg_id
+                , DATEPART(YEAR, f.f_spc_entry_timestamp)
+                , DATEPART(ISO_WEEK, f.f_spc_entry_timestamp)
+        )
+        , weekly_pct AS (
+            SELECT
+                d_seg_id, year_week, total_crossings, speeding_count
+                , CAST(speeding_count * 100.0 / total_crossings AS DECIMAL(5,2)) AS speeding_pct
+            FROM weekly_base
+        )
+
+        INSERT INTO [gold].[a_swr_seg_weekly_ranking] (
+            d_seg_id
+            , a_swr_year_week
+            , a_swr_total_crossings
+            , a_swr_over_speeding_count
+            , a_swr_over_speeding_percent
+            , a_swr_rank_position
+        )
+        SELECT
+            d_seg_id
+            , year_week
+            , total_crossings
+            , speeding_count
+            , speeding_pct
+            , RANK() OVER (PARTITION BY year_week ORDER BY speeding_pct DESC) AS rank_position
+        FROM weekly_pct;
+
+        SET @count_rows = @@ROWCOUNT;
+
+        /*********** AUDIT ***********/
+
+        COMMIT TRANSACTION;
+
+        EXECUTE [meta].[load_aua_audit_aggregate]
+            @aua_action = ''finished''
+            , @aua_id = @aggregate_id
+            , @aua_count_rows = @count_rows
+            , @aua_status = ''success''
+        /*****************************/
+
+        END TRY
+        BEGIN CATCH;
+            DECLARE @error_message NVARCHAR(4000) = ERROR_MESSAGE();
+
+            IF XACT_STATE() <> 0
+                ROLLBACK TRANSACTION;
+
+            /*********** AUDIT ***********/
+            EXECUTE [meta].[load_aua_audit_aggregate]
+                @aua_action = ''finished''
+                , @aua_id = @aggregate_id
+                , @aua_count_rows = 0
+                , @aua_status = ''failed''
+                , @aua_error_message = @error_message;
+            /*****************************/
+
+            THROW;
+        END CATCH
+    END
+    ')

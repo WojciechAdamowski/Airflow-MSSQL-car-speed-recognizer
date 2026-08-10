@@ -11,6 +11,15 @@ from typing import List
 from modules import logging
 
 
+def get_doc_by_dag_name(dag_name: str) -> str:
+    try:
+        with open("/opt/airflow/dagDocs/" + dag_name + ".md") as file:
+            file_content = file.read()
+        return file_content
+    except (FileNotFoundError, OSError) as e:
+        return "Default Docs"
+
+
 def init_default_directories(base_dir_path: str) -> None:
     quarantine_dir_path = base_dir_path + "/quarantine"
     if not os.path.exists(quarantine_dir_path):
@@ -226,20 +235,42 @@ def check_files_correctness_csv(
     return correct_files
 
 
+def cut_datetime(df: pd.DataFrame) -> pd.DataFrame:
+    object_cols = df.select_dtypes(include=["object"]).columns
+    print(object_cols)
+
+    for col in object_cols:
+        try:
+            converted = pd.to_datetime(df[col], errors="raise")
+            df[col] = converted.dt.round("s")
+        except (ValueError, TypeError) as e:
+            print(e)
+            continue
+
+    datetime_cols = df.select_dtypes(include=["datetime64"]).columns
+    print(datetime_cols)
+
+    for col in datetime_cols:
+        df[col] = df[col].dt.round('s')
+
+    return df
+
+
 def extract_csv_file_by_chunks(
         db_conn_hook: MsSqlHook
         , chunk_properties
 ):
     try:
-
         df = pd.read_csv(
             chunk_properties["file_path"]
+            , parse_dates=True
             , skiprows=range(1, chunk_properties["chunk_from"] + 1)
             , nrows=chunk_properties["chunk_to"] - chunk_properties["chunk_from"] + 1
         )
 
         df['md_batch_id'] = chunk_properties["chunk_batch_id"]
         df['md_file_path'] = chunk_properties["file_path"]
+        df = cut_datetime(df)
 
         conn = db_conn_hook.get_sqlalchemy_engine()
 
@@ -257,24 +288,25 @@ def extract_csv_file_by_chunks(
         chunk_properties["chunk_status"] = "success"
     except Exception as e:
         chunk_properties["chunk_status"] = "error"
-        chunk_properties["chunk_error_message"] = e
-        print('ERROR WHILE EXTRACTING DATA:', e)
+        chunk_properties["chunk_error_message"] = str(e)
+        print('ERROR WHILE EXTRACTING DATA:', str(e))
 
     return chunk_properties
 
 
 def get_correct_files(
         file_source_directory: str
-        , run_id: str
-        , dag_id: str
         , target_schema_name: str
         , target_table_name: str
         , db_conn_hook: MsSqlHook
         , file_schema: str = '*'
         , file_extension: str = 'csv'
         , source_system: str = "source_fs"
+        , **context
 ):
     all_files = glob.glob(file_source_directory + f"/{file_schema}.{file_extension}")
+    run_id = context['run_id']
+    dag_id = context['task_instance'].dag_id
 
     files_properties = []
     for file_path in all_files:
@@ -330,7 +362,10 @@ def log_loading_files(
         , chunk_properties
         , file_source_directory: str
         , db_conn_hook: MsSqlHook
+        , **context
 ):
+    chunk_properties = list(chunk_properties)
+
     if not isinstance(chunk_properties, list):
         chunk_properties = [chunk_properties]
 

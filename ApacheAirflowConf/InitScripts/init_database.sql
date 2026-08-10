@@ -6,6 +6,9 @@ GO
 
 USE car_speed_recognizer
 
+/*
+    Creating schema objects
+*/
 IF NOT EXISTS (SELECT 1 FROM sys.schemas WHERE name = 'bronze')
 EXEC('CREATE SCHEMA bronze');
 

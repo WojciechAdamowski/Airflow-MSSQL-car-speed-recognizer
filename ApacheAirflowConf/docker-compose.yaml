@@ -83,7 +83,8 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
     - ${AIRFLOW_PROJ_DIR:-.}/modules:/opt/airflow/modules
-    - ${AIRFLOW_PROJ_DIR:-.}/sqlScripts:/opt/airflow/sqlScripts
+    - ${AIRFLOW_PROJ_DIR:-.}/InitScripts:/opt/airflow/InitScripts
+    - ${AIRFLOW_PROJ_DIR:-.}/dagDocs:/opt/airflow/dagDocs
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on
@@ -114,6 +115,7 @@ services:
       - ACCEPT_EULA=Y
       - MSSQL_SA_PASSWORD=Th1sS3cret!
       - MSSQL_PID=Developer
+      - MSSQL_AGENT_ENABLED=false
     ports:
       - "1433:1433"
     volumes:
