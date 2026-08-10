@@ -31,6 +31,10 @@ with DAG(
         task_id='load_silver_table_d_vet_vehicle_type'
         , conn_id="target_ms_db"
         , sql=f"""
+        
+            SET ANSI_NULLS ON;
+            SET QUOTED_IDENTIFIER ON;
+            
             EXECUTE [silver].[load_d_vet_vehicle_type] 
                 @aul_window_from_time=%(aul_window_from_time)s
                 , @aul_window_to_time=%(aul_window_to_time)s
@@ -52,6 +56,10 @@ with DAG(
         task_id='load_silver_table_d_seg_segment'
         , conn_id="target_ms_db"
         , sql=f"""
+        
+            SET ANSI_NULLS ON;
+            SET QUOTED_IDENTIFIER ON;
+            
                 EXECUTE [silver].[load_d_seg_segment] 
                     @aul_window_from_time=%(aul_window_from_time)s
                     , @aul_window_to_time=%(aul_window_to_time)s
@@ -73,6 +81,10 @@ with DAG(
         task_id='load_silver_table_d_veh_vehicle'
         , conn_id="target_ms_db"
         , sql=f"""
+        
+            SET ANSI_NULLS ON;
+            SET QUOTED_IDENTIFIER ON;
+            
                 EXECUTE [silver].[load_d_veh_vehicle] 
                     @aul_window_from_time=%(aul_window_from_time)s
                     , @aul_window_to_time=%(aul_window_to_time)s
@@ -94,6 +106,10 @@ with DAG(
         task_id='load_silver_table_f_spc_speed_catch'
         , conn_id="target_ms_db"
         , sql=f"""
+        
+            SET ANSI_NULLS ON;
+            SET QUOTED_IDENTIFIER ON;
+            
                 EXECUTE [silver].[load_f_spc_speed_catch] 
                     @aul_window_from_time=%(aul_window_from_time)s
                     , @aul_window_to_time=%(aul_window_to_time)s

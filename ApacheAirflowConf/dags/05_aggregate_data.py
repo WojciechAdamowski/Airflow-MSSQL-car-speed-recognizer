@@ -30,6 +30,10 @@ with DAG(
         task_id='aggregate_a_swr_seg_weekly_ranking'
         , conn_id="target_ms_db"
         , sql=f"""
+        
+            SET ANSI_NULLS ON;
+            SET QUOTED_IDENTIFIER ON;
+            
             EXECUTE [gold].[aggregate_a_swr_seg_weekly_ranking] 
                 @aua_logical_date=%(aua_logical_date)s
                 , @aua_from_datetime=%(aua_window_from_time)s
