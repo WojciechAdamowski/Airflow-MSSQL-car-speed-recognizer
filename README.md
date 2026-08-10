@@ -2,19 +2,6 @@
 This is a project aimed at demonstrating skills in processing data from a file containing traffic statistics on road sections.
 A data pipeline built with Apache Airflow and SQL Server that simulates, ingests, and processes speed camera data for Polish road segments, following a bronze / silver / gold (medallion) architecture.
 
-## TODO
-1. [X] Create meta data tables for logging processes 
-2. [X] Partitioning bronze tables
-3. [X] Add indexes bronze
-4. [X] Make all dimensions
-5. [X] Add BLANK rows to every Dimension and change it in fact
-6. [X] Simple reports (views / materialized views)
-7. [X] Add indexes silver
-8. [X] Add indexes gold
-9. [X] Go through all database objects and check them 
-10. [X] Add documentation for all DAGs
-11. [ ] Better README: How project works, main features, main focuses, why dags are without schedules etc.
-
 ## Additional TODO
 1. [ ] Delta lake source
 2. [ ] Different source file extensions e.g. Excel, json, xml, parquet
@@ -139,9 +126,7 @@ Builds the gold-layer weekly segment ranking aggregate from the silver fact tabl
 ### [VIEWS](ApacheAirflowConf/InitScripts/init_views.sql)
 
 ## Gold Layer Views
- 
-Defined in [init_views.sql](InitScripts/init_views.sql), created on demand by 02_clear_all_data after truncation.
- 
+  
 ### gold.V_Segment_Speeding_Live
 A plain view listing individual speeding events. Joins the fact table with the segment and vehicle dimensions, keeping only crossings where the recorded speed exceeds the segment's speed limit, and excluding rows with unknown ("EMPTY") plate numbers or segment names. Reflects live data, since it is recalculated on every query.
  
