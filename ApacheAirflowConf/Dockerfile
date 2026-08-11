@@ -14,6 +14,7 @@ RUN apt-get update && ACCEPT_EULA=Y apt-get install -y msodbcsql18 mssql-tools18
 USER airflow
 RUN pip install apache-airflow-providers-microsoft-mssql
 RUN pip install apache-airflow-providers-common-sql
+RUN pip install apache-airflow-providers-odbc pyodbc
 RUN pip install pyodbc
 
 RUN pip install pandas

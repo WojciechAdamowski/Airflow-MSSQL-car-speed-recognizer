@@ -1,7 +1,7 @@
 USE car_speed_recognizer
 
-SET ANSI_NULLS ON
 SET QUOTED_IDENTIFIER ON
+
 GO
 /*
     Creating meta schema objects
@@ -117,7 +117,7 @@ CREATE TABLE [silver].[f_spc_speed_catch] (
     f_spc_id INT IDENTITY(1, 1) PRIMARY KEY
     , f_spc_entry_timestamp DATETIME NOT NULL
     , f_spc_exit_timestamp DATETIME NOT NULL
-    , f_spc_duration_sec AS DATEDIFF(SECOND, f_spc_entry_timestamp, f_spc_exit_timestamp) PERSISTED
+    , f_spc_duration_sec INT
     , f_spc_speed_km_h DECIMAL(6,2)
     , d_seg_id INT NOT NULL
     , d_veh_id INT NOT NULL

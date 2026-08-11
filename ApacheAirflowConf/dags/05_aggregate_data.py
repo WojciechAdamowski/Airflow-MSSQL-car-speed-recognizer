@@ -1,17 +1,17 @@
 from airflow import DAG
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.providers.microsoft.mssql.hooks.mssql import MsSqlHook
+from airflow.providers.odbc.hooks.odbc import OdbcHook
 from airflow.sdk import chain, cross_downstream
 from modules import logging
 from datetime import datetime
 from modules import tools
 
-DB_CONNECTION_HOOK = MsSqlHook(mssql_conn_id="target_ms_db")
+DB_CONNECTION_HOOK = OdbcHook(odbc_conn_id="target_ms_db")
 
 with DAG(
     dag_id='05_aggregate_data'
-    , schedule="0 1 1 * *"
+    # , schedule="0 1 1 * *"
     , start_date=datetime(2026, 7, 4)
     , tags={'aggregate'}
     , doc_md=tools.get_doc_by_dag_name("05_aggregate_data")
@@ -30,24 +30,20 @@ with DAG(
         task_id='aggregate_a_swr_seg_weekly_ranking'
         , conn_id="target_ms_db"
         , sql=f"""
-        
-            SET ANSI_NULLS ON;
-            SET QUOTED_IDENTIFIER ON;
-            
             EXECUTE [gold].[aggregate_a_swr_seg_weekly_ranking] 
-                @aua_logical_date=%(aua_logical_date)s
-                , @aua_from_datetime=%(aua_window_from_time)s
-                , @aua_to_datetime=%(aua_window_to_time)s
-                , @aua_pipeline_name=%(aua_pipeline_name)s
-                , @aua_batch_id=%(aua_batch_id)s
+                @aua_logical_date=?
+                , @aua_from_datetime=?
+                , @aua_to_datetime=?
+                , @aua_pipeline_name=?
+                , @aua_batch_id=?
         """
-        , parameters={
-            "aua_logical_date": "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aua_window_from_time": "{{ (logical_date - macros.timedelta(weeks=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aua_window_to_time": "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aua_pipeline_name": "{{ dag.dag_id }}",
-            "aua_batch_id": "{{ run_id }}"
-        }
+        , parameters=[
+            "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ (logical_date - macros.timedelta(weeks=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ dag.dag_id }}",
+            "{{ run_id }}"
+        ]
         , autocommit=True
     )
 

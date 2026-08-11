@@ -1,21 +1,23 @@
 from airflow import DAG
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.providers.microsoft.mssql.hooks.mssql import MsSqlHook
+from airflow.providers.odbc.hooks.odbc import OdbcHook
+
 from airflow.sdk import chain, cross_downstream
 from modules import logging
 from datetime import datetime
 from modules import tools
 
-DB_CONNECTION_HOOK = MsSqlHook(mssql_conn_id="target_ms_db")
+DB_CONNECTION_HOOK = OdbcHook(odbc_conn_id="target_ms_db")
 
 with DAG(
     dag_id='04_load_data'
-    , schedule="0 * * * *"
+    # , schedule="0 * * * *"
     , start_date=datetime(2026, 7, 4)
     , tags={'load'}
     , template_searchpath=["/opt/airflow/sqlScripts/"]
     , doc_md=tools.get_doc_by_dag_name("04_load_data")
+    , catchup=False
 ):
     t_start = PythonOperator(
         task_id="start_process"
@@ -31,24 +33,20 @@ with DAG(
         task_id='load_silver_table_d_vet_vehicle_type'
         , conn_id="target_ms_db"
         , sql=f"""
-        
-            SET ANSI_NULLS ON;
-            SET QUOTED_IDENTIFIER ON;
-            
             EXECUTE [silver].[load_d_vet_vehicle_type] 
-                @aul_window_from_time=%(aul_window_from_time)s
-                , @aul_window_to_time=%(aul_window_to_time)s
-                , @aul_pipeline_name=%(aul_pipeline_name)s
-                , @aul_logical_date=%(aul_logical_date)s
-                , @aul_batch_id=%(aul_batch_id)s
+                @aul_window_from_time=?
+                , @aul_window_to_time=?
+                , @aul_pipeline_name=?
+                , @aul_logical_date=?
+                , @aul_batch_id=?
         """
-        , parameters={
-            "aul_window_from_time": "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_window_to_time": "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_pipeline_name": "{{ dag.dag_id }}",
-            "aul_logical_date": "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_batch_id": "{{ run_id }}"
-        }
+        , parameters=[
+            "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ dag.dag_id }}",
+            "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ run_id }}"
+        ]
         , autocommit=True
     )
 
@@ -56,74 +54,62 @@ with DAG(
         task_id='load_silver_table_d_seg_segment'
         , conn_id="target_ms_db"
         , sql=f"""
-        
-            SET ANSI_NULLS ON;
-            SET QUOTED_IDENTIFIER ON;
-            
                 EXECUTE [silver].[load_d_seg_segment] 
-                    @aul_window_from_time=%(aul_window_from_time)s
-                    , @aul_window_to_time=%(aul_window_to_time)s
-                    , @aul_pipeline_name=%(aul_pipeline_name)s
-                    , @aul_logical_date=%(aul_logical_date)s
-                    , @aul_batch_id=%(aul_batch_id)s
+                    @aul_window_from_time=?
+                    , @aul_window_to_time=?
+                    , @aul_pipeline_name=?
+                    , @aul_logical_date=?
+                    , @aul_batch_id=?
             """
-        , parameters={
-            "aul_window_from_time": "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_window_to_time": "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_pipeline_name": "{{ dag.dag_id }}",
-            "aul_logical_date": "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_batch_id": "{{ run_id }}"
-        }
+        , parameters=[
+            "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ dag.dag_id }}",
+            "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ run_id }}"
+        ]
         , autocommit=True
     )
 
     t_load_silver_table_d_veh_vehicle = SQLExecuteQueryOperator(
         task_id='load_silver_table_d_veh_vehicle'
         , conn_id="target_ms_db"
-        , sql=f"""
-        
-            SET ANSI_NULLS ON;
-            SET QUOTED_IDENTIFIER ON;
-            
+        , sql=f"""            
                 EXECUTE [silver].[load_d_veh_vehicle] 
-                    @aul_window_from_time=%(aul_window_from_time)s
-                    , @aul_window_to_time=%(aul_window_to_time)s
-                    , @aul_pipeline_name=%(aul_pipeline_name)s
-                    , @aul_logical_date=%(aul_logical_date)s
-                    , @aul_batch_id=%(aul_batch_id)s
+                    @aul_window_from_time=?
+                    , @aul_window_to_time=?
+                    , @aul_pipeline_name=?
+                    , @aul_logical_date=?
+                    , @aul_batch_id=?
             """
-        , parameters={
-            "aul_window_from_time": "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_window_to_time": "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_pipeline_name": "{{ dag.dag_id }}",
-            "aul_logical_date": "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_batch_id": "{{ run_id }}"
-        }
+        , parameters=[
+            "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ dag.dag_id }}",
+            "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ run_id }}"
+        ]
         , autocommit=True
     )
 
     t_load_silver_table_f_spc_speed_catch = SQLExecuteQueryOperator(
         task_id='load_silver_table_f_spc_speed_catch'
         , conn_id="target_ms_db"
-        , sql=f"""
-        
-            SET ANSI_NULLS ON;
-            SET QUOTED_IDENTIFIER ON;
-            
+        , sql=f"""            
                 EXECUTE [silver].[load_f_spc_speed_catch] 
-                    @aul_window_from_time=%(aul_window_from_time)s
-                    , @aul_window_to_time=%(aul_window_to_time)s
-                    , @aul_pipeline_name=%(aul_pipeline_name)s
-                    , @aul_logical_date=%(aul_logical_date)s
-                    , @aul_batch_id=%(aul_batch_id)s
+                    @aul_window_from_time=?
+                    , @aul_window_to_time=?
+                    , @aul_pipeline_name=?
+                    , @aul_logical_date=?
+                    , @aul_batch_id=?
             """
-        , parameters={
-            "aul_window_from_time": "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_window_to_time": "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_pipeline_name": "{{ dag.dag_id }}",
-            "aul_logical_date": "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
-            "aul_batch_id": "{{ run_id }}"
-        }
+        , parameters=[
+            "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ logical_date.strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ dag.dag_id }}",
+            "{{ (logical_date - macros.timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S') }}",
+            "{{ run_id }}"
+        ]
         , autocommit=True
     )
 

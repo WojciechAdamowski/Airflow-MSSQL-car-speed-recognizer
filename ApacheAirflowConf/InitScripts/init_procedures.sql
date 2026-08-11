@@ -1,5 +1,7 @@
 USE car_speed_recognizer
 
+SET QUOTED_IDENTIFIER ON
+
 /*
     Creating meta schema objects
 */
@@ -919,6 +921,9 @@ CREATE PROCEDURE [silver].[load_f_spc_speed_catch] (
                     , CAST(
                         seg.d_seg_length_m / 1000.0 / (DATEDIFF(SECOND, spc.entry_timestamp, spc.exit_timestamp) / 3600.0
                     ) AS DECIMAL(6,2))              AS [f_spc_speed_km_h]
+                    , CAST(
+                        DATEDIFF(SECOND, entry_timestamp, exit_timestamp)
+                    AS INT)                       AS [f_spc_duration_sec]
                     , ISNULL(seg.d_seg_id, 0)       AS [d_seg_id]
                     , ISNULL(veh.d_veh_id, 0)       AS [d_veh_id]
                     , alf_id                        AS [md_alf_id]
@@ -932,6 +937,7 @@ CREATE PROCEDURE [silver].[load_f_spc_speed_catch] (
                 f_spc_entry_timestamp
                 , f_spc_exit_timestamp
                 , f_spc_speed_km_h
+                , f_spc_duration_sec
                 , d_seg_id
                 , d_veh_id
                 , md_alf_id

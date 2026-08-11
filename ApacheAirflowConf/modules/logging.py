@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from airflow.providers.microsoft.mssql.hooks.mssql import MsSqlHook
+from airflow.providers.odbc.hooks.odbc import OdbcHook
 
 
 #################
@@ -9,17 +9,17 @@ from airflow.providers.microsoft.mssql.hooks.mssql import MsSqlHook
 
 def _start_file_loading_database(
         loading_file_details
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
 ):
     query_for_metadata = """
         EXECUTE [meta].[load_alf_audit_loaded_files]
-            @alf_batch_id = %s
-            , @alf_pipeline_name = %s
-            , @alf_file_path = %s
-            , @alf_load_start_datetime = %s
-            , @alf_source_system = %s
-            , @alf_target_schema = %s
-            , @alf_target_table = %s
+            @alf_batch_id = ?
+            , @alf_pipeline_name = ?
+            , @alf_file_path = ?
+            , @alf_load_start_datetime = ?
+            , @alf_source_system = ?
+            , @alf_target_schema = ?
+            , @alf_target_table = ?
             , @action = 'started'
     """
 
@@ -57,7 +57,7 @@ def start_file_loading(
         , target_schema_name: str
         , target_table_name: str
         , source_system: str
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
 ):
     file_properties = {
         "alf_batch_id": run_id
@@ -79,17 +79,17 @@ def start_file_loading(
 
 def _end_file_loading_database(
         loading_file_details
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
 ):
     query_for_metadata = """
         EXECUTE [meta].[load_alf_audit_loaded_files]
-            @alf_source_rows = %s
-            , @alf_file_size_bytes = %s
-            , @alf_rejected_rows = %s
-            , @alf_status = %s
-            , @alf_error_message = %s
-            , @alf_load_end_datetime = %s
-            , @alf_id = %s
+            @alf_source_rows = ?
+            , @alf_file_size_bytes = ?
+            , @alf_rejected_rows = ?
+            , @alf_status = ?
+            , @alf_error_message = ?
+            , @alf_load_end_datetime = ?
+            , @alf_id = ?
             , @action = 'finished'
     """
 
@@ -116,7 +116,7 @@ def _end_file_loading_database(
 
 def end_file_loading(
         loading_file_details
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
 ):
     loading_file_details["alf_load_end_datetime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     _end_file_loading_database(loading_file_details, db_conn_hook)
@@ -128,14 +128,14 @@ def end_file_loading(
 
 def _start_process_database(
         process_details
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
 ):
     query_for_metadata = """
         EXECUTE [meta].[load_aup_audit_process] 
-            @aup_batch_id = %s
-            , @aup_pipeline_name = %s
-            , @aup_start_datetime = %s
-            , @aup_status = %s
+            @aup_batch_id = ?
+            , @aup_pipeline_name = ?
+            , @aup_start_datetime = ?
+            , @aup_status = ?
             , @action = 'started'
     """
 
@@ -166,7 +166,7 @@ def _start_process_database(
 def start_process(
         run_id: str
         , dag_id: str
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
 ):
     process_details = {
         "aup_batch_id": run_id
@@ -182,14 +182,14 @@ def start_process(
 
 def _end_process_database(
         process_details
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
 ):
     query_for_metadata = """
         EXECUTE [meta].[load_aup_audit_process] 
-            @aup_id = %s
-            , @aup_end_datetime = %s
-            , @aup_error_message = %s
-            , @aup_status = %s
+            @aup_id = ?
+            , @aup_end_datetime = ?
+            , @aup_error_message = ?
+            , @aup_status = ?
             , @action = 'finished'
     """
 
@@ -213,7 +213,7 @@ def _end_process_database(
 
 def end_process_success(
         process_details
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
 ):
     process_details["aup_end_datetime"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     process_details["aup_status"] = "success"
@@ -223,7 +223,7 @@ def end_process_success(
 
 def end_process_failure(
         process_details
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
         , **context
 ):
     dag = context["dag"]

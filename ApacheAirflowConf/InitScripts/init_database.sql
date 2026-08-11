@@ -6,6 +6,9 @@ GO
 
 USE car_speed_recognizer
 
+SET QUOTED_IDENTIFIER ON
+
+
 /*
     Creating schema objects
 */

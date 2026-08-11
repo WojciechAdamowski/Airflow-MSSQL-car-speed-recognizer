@@ -4,16 +4,17 @@ from modules import logging
 from airflow import DAG, Asset
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.providers.standard.sensors.filesystem import FileSensor
-from airflow.providers.microsoft.mssql.hooks.mssql import MsSqlHook
+from airflow.providers.odbc.hooks.odbc import OdbcHook
 from airflow.sdk.bases.hook import BaseHook
 from airflow.sdk import chain, cross_downstream
 
 FILE_STORAGE_PATH = BaseHook.get_connection("source_fs").extra_dejson["path"]
-DB_CONNECTION_HOOK = MsSqlHook(mssql_conn_id="target_ms_db")
+DB_CONNECTION_HOOK = OdbcHook(odbc_conn_id="target_ms_db")
 SOURCE_DIRECTORY_ASSET = Asset(uri=FILE_STORAGE_PATH)
 
 TARGET_TABLE_NAME = "fs_car_speed_catches"
 TARGET_SCHEMA_NAME = "bronze"
+
 
 def log_loading_files(**context):
     ti = context["ti"]

@@ -31,7 +31,7 @@ Start-Process "http://localhost:8080/dags"
 
 ### Export connections 
 ```powershell
-docker-compose exec -it airflow-apiserver airflow connections export /tmp/connections.json
+docker-compose exec --user root airflow-apiserver /home/airflow/.local/bin/python -m airflow connections export /tmp/connections.json
 docker-compose cp airflow-apiserver:/tmp/connections.json ./Metadata/connections.json
 ```
 

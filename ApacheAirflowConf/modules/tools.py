@@ -1,4 +1,5 @@
-from airflow.providers.microsoft.mssql.hooks.mssql import MsSqlHook
+from airflow.providers.odbc.hooks.odbc import OdbcHook
+
 from datetime import datetime
 
 import pandera.pandas as pa
@@ -86,7 +87,7 @@ def check_column_types(source_df: pd.DataFrame, schema_df: pa.DataFrameSchema) -
         }
 
 
-def get_table_schema(table_name: str, schema_name: str, conn: MsSqlHook) -> pa.DataFrameSchema:
+def get_table_schema(table_name: str, schema_name: str, conn: OdbcHook) -> pa.DataFrameSchema:
     query_for_metadata = f"""
         SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, CHARACTER_MAXIMUM_LENGTH
         FROM INFORMATION_SCHEMA.COLUMNS
@@ -163,7 +164,7 @@ def check_correctness(df, table_schema_df) -> dict[str, bool | str]:
 
 
 def remove_error_file_rows_from_db(
-        db_conn_hook: MsSqlHook
+        db_conn_hook: OdbcHook
         , file_properties
 ):
     conn = db_conn_hook.get_conn()
@@ -184,7 +185,7 @@ def remove_error_file_rows_from_db(
 
 def check_files_correctness_csv(
         files_properties: List[dict]
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
 ):
     print(f"CHECKING CORRECTNESS FOR {len(files_properties)} FILES")
 
@@ -257,7 +258,7 @@ def cut_datetime(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def extract_csv_file_by_chunks(
-        db_conn_hook: MsSqlHook
+        db_conn_hook: OdbcHook
         , chunk_properties
 ):
     try:
@@ -281,7 +282,7 @@ def extract_csv_file_by_chunks(
                 , schema=chunk_properties["chunk_target_schema_name"]
                 , if_exists="append"
                 , index=False
-                , chunksize=1000
+                , chunksize=100
                 , method='multi'
             )
 
@@ -298,7 +299,7 @@ def get_correct_files(
         file_source_directory: str
         , target_schema_name: str
         , target_table_name: str
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
         , file_schema: str = '*'
         , file_extension: str = 'csv'
         , source_system: str = "source_fs"
@@ -361,7 +362,7 @@ def log_loading_files(
         file_properties
         , chunk_properties
         , file_source_directory: str
-        , db_conn_hook: MsSqlHook
+        , db_conn_hook: OdbcHook
         , **context
 ):
     chunk_properties = list(chunk_properties)

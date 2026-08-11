@@ -1,5 +1,7 @@
 USE car_speed_recognizer;
 
+SET QUOTED_IDENTIFIER ON
+
 IF NOT EXISTS (SELECT OBJECT_ID(N'meta.ths_tables_have_same_shape', N'FN'))
 EXEC('
     CREATE FUNCTION meta.ths_tables_have_same_shape

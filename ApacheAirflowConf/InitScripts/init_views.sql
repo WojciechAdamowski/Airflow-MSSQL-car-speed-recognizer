@@ -1,5 +1,7 @@
 USE car_speed_recognizer
 
+SET QUOTED_IDENTIFIER ON
+
 IF NOT EXISTS(SELECT 1 FROM sys.views WHERE name = 'V_Segment_Speeding_Live')
 EXEC('
     CREATE VIEW [gold].[V_Segment_Speeding_Live] AS
@@ -19,22 +21,26 @@ EXEC('
 ')
 
 IF NOT EXISTS(SELECT 1 FROM sys.views WHERE name = 'MV_Segment_Daily_Stats')
-EXEC('CREATE VIEW [gold].[MV_Segment_Daily_Stats] WITH SCHEMABINDING AS
-SELECT
-    d_seg.d_seg_name AS [Segment_Name]
-    , CAST(f_spc.f_spc_entry_timestamp AS DATE) AS [Speed_Catch_Entry_Date]
-    , COUNT_BIG(*) AS [Total_Crossing]
-    , SUM(ISNULL(CAST(f_spc.f_spc_speed_km_h AS BIGINT), 0)) AS [Sum_Speed_Km_H]
-FROM [silver].[f_spc_speed_catch] AS f_spc
-JOIN [silver].[d_seg_segment] AS d_seg ON f_spc.d_seg_id = d_seg.d_seg_id
-GROUP BY
-    d_seg.d_seg_name
-    , CAST(f_spc.f_spc_entry_timestamp AS DATE)
-')
+BEGIN
 
-IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name = 'IX_seg_daily_mat')
-CREATE UNIQUE CLUSTERED INDEX IX_seg_daily_mat
-ON gold.MV_Segment_Daily_Stats (Segment_Name, Speed_Catch_Entry_Date)
+    EXEC('CREATE VIEW [gold].[MV_Segment_Daily_Stats] WITH SCHEMABINDING AS
+    SELECT
+        d_seg.d_seg_name AS [Segment_Name]
+        , CAST(f_spc.f_spc_entry_timestamp AS DATE) AS [Speed_Catch_Entry_Date]
+        , COUNT_BIG(*) AS [Total_Crossing]
+        , SUM(ISNULL(CAST(f_spc.f_spc_speed_km_h AS BIGINT), 0)) AS [Sum_Speed_Km_H]
+    FROM [silver].[f_spc_speed_catch] AS f_spc
+    JOIN [silver].[d_seg_segment] AS d_seg ON f_spc.d_seg_id = d_seg.d_seg_id
+    GROUP BY
+        d_seg.d_seg_name
+        , CAST(f_spc.f_spc_entry_timestamp AS DATE)
+    ')
+
+    IF NOT EXISTS(SELECT 1 FROM sys.indexes WHERE name = 'IX_seg_daily_mat')
+    CREATE UNIQUE CLUSTERED INDEX IX_seg_daily_mat
+    ON gold.MV_Segment_Daily_Stats (Segment_Name, Speed_Catch_Entry_Date)
+
+END
 
 IF NOT EXISTS(SELECT 1 FROM sys.views WHERE name = 'AV_Segment_Weekly_Ranking')
 EXEC('CREATE VIEW [gold].[AV_Segment_Weekly_Ranking] AS
